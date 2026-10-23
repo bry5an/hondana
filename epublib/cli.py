@@ -55,6 +55,9 @@ def _cfg(args):
 
 def cmd_stage(args):
     """Every pipeline stage (and `all`): the registry entry rides on the parser."""
+    if getattr(args, "dry_run", False):  # audio-scan --dry-run: report, write nothing
+        audiobook_scanner_mod.scan(_cfg(args), dry_run=True)
+        return
     args.stage.run(_cfg(args), getattr(args, "refresh", False))
 
 
@@ -303,6 +306,9 @@ def main(argv=None):
         p = sub.add_parser(stage.id, help=stage.help)
         if stage.refresh_help:
             p.add_argument("--refresh", action="store_true", help=stage.refresh_help)
+        if stage.id == "audio-scan":
+            p.add_argument("--dry-run", action="store_true",
+                           help="print the moves and id changes a scan would make; write nothing")
         p.set_defaults(func=cmd_stage, stage=stage)
 
     p_cons = sub.add_parser(

@@ -310,8 +310,8 @@ def make_plan(server: Server, book: dict, entries: dict[str, dict] | None = None
     entry = entries.get(ab_id) if entries is not None else server.audiobook(ab_id)
     if not entry or not entry.get("local"):
         raise RemoteError(f"no_audiobook: {ab_id} is not on the server")
-    mp3 = entry.get("format") == "mp3-folder"
-    names = list(entry.get("files") or []) if mp3 else [Path(entry["path"]).name]
+    mp3 = bool(entry.get("files"))  # a folder of tracks (mp3 or otherwise)
+    names = list(entry["files"]) if mp3 else [Path(entry["path"]).name]
     if not names:
         raise RemoteError(f"no_audiobook: {ab_id} has no audio files")
     plan = Plan(book, ab_id, names, names if mp3 else None, entry.get("runtime_min"), entry.get("filesize"))

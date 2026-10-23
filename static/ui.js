@@ -481,9 +481,11 @@ function dlEpub(bookId, opts = {}) {
 // is "audiobook.jp 237969" / "kikubon 389") instead of claiming there is no audiobook.
 function dlAudio(a, opts = {}) {
   const named = (what) => (opts.label ? ` aria-label="${esc(`${what}: ${opts.label}`)}"` : "");
+  // The button names the file type: M4B unless the row says it is another single file.
+  const kind = a && a.format && !["mp3-folder", "tracks"].includes(a.format) ? a.format.toUpperCase() : "M4B";
   if (a && a.local)
     return `<a class="${_dlClass("audio", opts)}" href="/download/audiobook/${encodeURIComponent(a.id)}" ` +
-      `title="${esc(a.path || "Download audiobook")}"${named("Download audiobook")}>${icon("headphones")}M4B</a>`;
+      `title="${esc(a.path || "Download audiobook")}"${named("Download audiobook")}>${icon("headphones")}${kind}</a>`;
   if (a && a.audibleUrl)
     return `<a class="${_dlClass("audible", opts)}" href="${esc(a.audibleUrl)}" target="_blank" rel="noopener" ` +
       `title="Open on Audible"${named("Open on Audible")}>${icon("headphones")}Audible${icon("open_in_new")}</a>`;
@@ -504,7 +506,7 @@ function dlAudio(a, opts = {}) {
   return `<span class="${_dlClass("none", opts)}">${opts.size === "xs" ? "—" : "No audiobook"}</span>`;
 }
 
-// One MP3 track of a folder audiobook (the /audiobook-series `.tracks` list):
+// One track of a folder audiobook (the /audiobook-series `.tracks` list):
 // `file` is a name from the entry's `files`.
 function dlTrack(abId, file) {
   return `<a href="/download/audiobook/${encodeURIComponent(abId)}?part=${encodeURIComponent(file)}">${esc(file)}</a>`;

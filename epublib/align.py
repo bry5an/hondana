@@ -14,8 +14,8 @@ against the pack's own anchors:
 `docs[].sents[i]` lines up with the pack's `docs[].sents[i]` (both come from
 `annotate._sentence_spans`); `null` marks a sentence no cue matched. `fnv` is
 the pack document's, so the phone can refuse a map built against another text.
-`part` is the file name of the mp3 a sentence is in, for an `mp3-folder`
-audiobook (time is per part there); it is absent for a single m4b.
+`part` is the file name of the track a sentence is in, for an audiobook that
+is a folder of tracks (time is per part there); it is absent for a single file.
 `ok` is `coverage >= OK_COVERAGE`: below it the map is still served, so the
 phone can decline to highlight rather than show one that drifts.
 

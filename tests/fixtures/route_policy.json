@@ -54,6 +54,7 @@
  "GET /audiobook-series": "open",
  "GET /audiobooks": "open",
  "GET /book/{book_id}": "open",
+ "GET /covers/audiobook/{ab_id}": "open",
  "GET /covers/{book_id}": "open",
  "GET /download/audiobook/{ab_id}": "open",
  "GET /download/{book_id}": "open",

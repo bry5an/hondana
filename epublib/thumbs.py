@@ -23,14 +23,15 @@ def thumb_path(data_dir: Path, book_id: str) -> Path:
     return data_dir / "covers" / "thumbs" / f"{book_id}.webp"
 
 
-def ensure_thumb(data_dir: Path, book_id: str, src: Path) -> Path | None:
-    """Return a cached thumbnail for `src`, generating it if needed.
+def ensure_thumb(data_dir: Path, book_id: str, src: Path, dest: Path | None = None) -> Path | None:
+    """Return a cached thumbnail for `src`, generating it if needed (at `dest`,
+    default `covers/thumbs/{book_id}.webp`).
 
     Returns None if the thumbnail can't be produced (Pillow missing, undecodable
     image); callers fall back to the original file rather than failing the
     request — a cover is never worth a 500.
     """
-    dest = thumb_path(data_dir, book_id)
+    dest = dest or thumb_path(data_dir, book_id)
     try:
         if dest.exists() and dest.stat().st_mtime >= src.stat().st_mtime:
             return dest

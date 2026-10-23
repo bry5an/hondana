@@ -99,22 +99,27 @@ def _identity_keys(entry: dict) -> list[tuple]:
     return keys
 
 
-def match_moves(vanished: dict[str, dict], fresh: dict[str, dict]) -> dict[str, str]:
+_KINDS = ("path", "asin", "isbn", "file", "opf", "title+author")
+
+
+def match_moves(vanished: dict[str, dict], fresh: dict[str, dict], *,
+                keys=_identity_keys, kinds: tuple[str, ...] = _KINDS) -> dict[str, str]:
     """Pair vanished entries with freshly added ones: {old_id: new_id}.
 
     Tier by tier (path, asin, isbn, file name+size, OPF identifier,
     title+author), a pair is made only when the signal picks out exactly one vanished and one fresh entry among those still
     unmatched — an ambiguous signal (a series sharing an author and title, two
-    files with one ISBN) migrates nothing rather than guessing."""
+    files with one ISBN) migrates nothing rather than guessing. `keys` and
+    `kinds` swap in other signals (the audiobook scan uses its own)."""
     matches: dict[str, str] = {}
-    for kind in ("path", "asin", "isbn", "file", "opf", "title+author"):
+    for kind in kinds:
         by_old: dict = {}
         by_new: dict = {}
         for table, entries in ((by_old, vanished), (by_new, fresh)):
             for bid, entry in entries.items():
                 if bid in matches or bid in matches.values():
                     continue
-                for k, v in _identity_keys(entry):
+                for k, v in keys(entry):
                     if k == kind:
                         table.setdefault(v, []).append(bid)
         for key, olds in by_old.items():

@@ -35,6 +35,7 @@ citations.
 | [python-zeroconf](https://github.com/python-zeroconf/python-zeroconf) | LGPL-2.1-or-later |
 | [segno](https://github.com/heuer/segno) | BSD 3-Clause |
 | [genanki](https://github.com/kerrickstaley/genanki) | MIT |
+| [mutagen](https://github.com/quodlibet/mutagen) | GPL-2.0-or-later |
 | [Requests](https://github.com/psf/requests) | Apache-2.0 |
 
 ## Fonts and icons

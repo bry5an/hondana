@@ -20,7 +20,7 @@ for that default profile.
 |---|---|
 | Health | `GET /healthz` |
 | Books | `GET /api/books` (all, `?series=` to filter), `GET /api/books/{id}`, `GET /api/books/{id}/study`, `POST /api/books/{id}/read`, `PATCH …/read-date`, `DELETE /api/books/{id}` (deletes the file) |
-| Files | `GET /download/{id}` (EPUB), `GET /covers/{id}`, `GET /download/audiobook/{ab_id}[?part=<mp3>]` (Range supported) |
+| Files | `GET /download/{id}` (EPUB), `GET /covers/{id}`, `GET /download/audiobook/{ab_id}[?part=<track>]` (Range supported; a book of tracks without `part` lists its `files`), `GET /covers/audiobook/{ab_id}[?full=1]` (a local audiobook's own cover). An old `ab_id` (before the book gained a key) redirects to the new one |
 | Adding books | `POST /api/upload` (multipart) and `POST /api/acquire` (from a URL), both 409 with `existing` for a book you already have; `POST /api/books/{id}/analyze`; `GET /api/books/{id}/status` (the book's pipeline progress) |
 | Editing | `GET`/`POST /api/books/{id}/details` (title, author, language, genre, series), `POST`/`DELETE …/cover`, `GET`/`POST`/`DELETE …/audiobook-link`, `GET /api/genres`, series-wide `POST /api/books/genre`, `/api/books/series`, `/api/series/rename` |
 | Editions | `GET /api/books/{id}/edition`, `POST`/`DELETE …/edition/none`, `GET /api/pairing/suggestions`, `POST /api/pairing/link` / `unlink` / `block` / `unblock` |

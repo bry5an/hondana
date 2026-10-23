@@ -102,11 +102,14 @@ function runtime(min) {
 }
 
 function volAction(v) {
-  if (v.local && v.format === "mp3-folder") {
-    const tracks = (v.files || []).map((f) => dlTrack(v.ab_id, f)).join("");
-    return `<details class="tracks"><summary>${icon("download")} ${(v.files || []).length} MP3s</summary>${tracks}</details>`;
+  // A folder of tracks (mp3s, or an album of m4a/flac/opus files): one link each.
+  if (v.local && v.files && v.files.length) {
+    const tracks = v.files.map((f) => dlTrack(v.ab_id, f)).join("");
+    const kind = v.format === "mp3-folder" ? "MP3s" : "tracks";
+    return `<details class="tracks"><summary>${icon("download")} ${v.files.length} ${kind}</summary>${tracks}</details>`;
   }
-  return dlAudio({ id: v.ab_id, local: v.local, audibleUrl: v.audible_url }, { size: "sm", placeholder: true });
+  return dlAudio({ id: v.ab_id, local: v.local, audibleUrl: v.audible_url, format: v.format },
+                 { size: "sm", placeholder: true });
 }
 
 // Companion-EPUB chip: links across to /book/{id}.

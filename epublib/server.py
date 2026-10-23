@@ -29,7 +29,7 @@ from pathlib import Path
 
 import requests as req_lib
 from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, Request, UploadFile
-from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.responses import Response
 from starlette.types import Scope
@@ -642,6 +642,29 @@ def cover(book_id: str, full: int = 0) -> FileResponse:
     )
 
 
+@app.get("/covers/audiobook/{ab_id}")
+def audiobook_cover(ab_id: str, request: Request, full: int = 0):
+    """A local audiobook's own cover (from its tags, or its folder's cover.jpg),
+    as a thumbnail unless `full`. Versioned URLs (audiobook_scanner.cover_url)
+    make it safe to cache for good."""
+    entry = _cached_json(cfg.audiobook_files_index, {}).get(ab_id)
+    if not entry:
+        moved = _moved_audiobook(ab_id, request, "/covers/audiobook/")
+        if moved:
+            return moved
+    src = cfg.data_dir / entry["cover"] if entry and entry.get("cover") else None
+    if src is None or not src.exists():
+        raise HTTPException(status_code=404, detail="No cover")
+    path, media_type = src, None
+    if not full:
+        thumb = thumbs_mod.ensure_thumb(cfg.data_dir, ab_id, src,
+                                        cfg.audiobook_covers_dir / "thumbs" / f"{src.stem}.webp")
+        if thumb is not None:
+            path, media_type = thumb, "image/webp"
+    return FileResponse(path, media_type=media_type,
+                        headers={"Cache-Control": "public, max-age=31536000, immutable"})
+
+
 @app.get("/api/audiobooks")
 def api_audiobooks() -> JSONResponse:
     index = _load_audiobooks()
@@ -765,6 +788,21 @@ def _delete_audiobook_locked(ab_id: str) -> JSONResponse:
             warnings.append(f"Directory not found: {entry['path']}")
         except OSError as exc:
             raise HTTPException(status_code=500, detail=f"Failed to delete directory: {exc}")
+    elif entry.get("files"):
+        # A `tracks` book is one album of a folder that may hold others: only
+        # its own files go, then the folder if nothing else is left in it.
+        for name in entry["files"]:
+            try:
+                (path / name).unlink()
+                deleted_files.append(name)
+            except FileNotFoundError:
+                warnings.append(f"File not found: {entry['path']}/{name}")
+            except OSError as exc:
+                raise HTTPException(status_code=500, detail=f"Failed to delete file: {exc}")
+        try:
+            path.rmdir()
+        except OSError:
+            pass
     else:
         try:
             path.unlink()
@@ -861,14 +899,14 @@ ALIGN_MAX_BYTES = 5 * 1024 * 1024
 
 
 def _book_audiobook(book: dict) -> tuple[str | None, list[str] | None]:
-    """`(ab_id, mp3 files)` of the book's linked audiobook when it is on this
-    machine, else `(None, None)`; `files` is None for a single m4b."""
+    """`(ab_id, track files)` of the book's linked audiobook when it is on this
+    machine, else `(None, None)`; `files` is None for a single-file book."""
     link = book.get("audiobook") or {}
     ab_id = link.get("audible_isbn")
     entry = _load_audiobooks().get(ab_id) if ab_id and link.get("audiobook_local") else None
     if not entry or not entry.get("local"):
         return None, None
-    return ab_id, (entry.get("files") or None) if entry.get("format") == "mp3-folder" else None
+    return ab_id, entry.get("files") or None
 
 
 def _book_alignment_state(book: dict) -> dict:
@@ -1277,26 +1315,46 @@ async def audiobooks_unhide(payload: schemas.AbIdsRequest) -> JSONResponse:
 
 
 # NOTE: declared before /download/{book_id} so the literal segment wins.
+# A track's type, for players that go by it (a whole file is octet-stream, below).
+_AUDIO_TYPES = {".mp3": "audio/mpeg", ".m4a": "audio/mp4", ".m4b": "audio/mp4",
+                ".flac": "audio/flac", ".opus": "audio/ogg", ".ogg": "audio/ogg"}
+
+
+def _moved_audiobook(ab_id: str, request: Request, prefix: str) -> RedirectResponse | None:
+    """A redirect to where an old ab_id went (audiobook_rekey), for links and
+    phone downloads made before it gained a key."""
+    new = load_json(cfg.audiobook_aliases, {}).get(ab_id)
+    if not new or new not in _load_audiobooks():
+        return None
+    query = f"?{request.url.query}" if request.url.query else ""
+    return RedirectResponse(f"{prefix}{urllib.parse.quote(new)}{query}", status_code=307)
+
+
 @app.get("/download/audiobook/{ab_id}")
-def download_audiobook(ab_id: str, part: str | None = None):
+def download_audiobook(ab_id: str, request: Request, part: str | None = None):
     index = _load_audiobooks()
     entry = index.get(ab_id)
+    if not entry:
+        moved = _moved_audiobook(ab_id, request, "/download/audiobook/")
+        if moved:
+            return moved
     if not entry or not entry.get("local"):
         raise HTTPException(status_code=404, detail="Audiobook not found")
     path = _safe_audiobook_path(entry)
-    if entry["format"] == "mp3-folder":
-        files = entry.get("files") or []
+    if entry.get("files"):
+        files = entry["files"]
         if part is None:
             return JSONResponse({"ab_id": ab_id, "files": files})
         if part not in files:  # whitelist: no traversal possible
             raise HTTPException(status_code=404, detail="No such track")
         path = path / part
-        media_type, filename = "audio/mpeg", part
+        media_type = _AUDIO_TYPES.get(Path(part).suffix.lower(), "application/octet-stream")
+        filename = part
     else:
         # Use octet-stream, not audio/mp4: Safari/iOS derives the saved
         # extension from the MIME type (audio/mp4 -> .mp4) and appends it,
         # producing "Title.m4b.mp4". octet-stream has no preferred extension,
-        # so Safari honors the Content-Disposition filename (.m4b) verbatim.
+        # so Safari honors the Content-Disposition filename (.m4b, .flac…) verbatim.
         media_type, filename = "application/octet-stream", path.name
     if not path.exists():
         raise HTTPException(status_code=404, detail="File missing (volume unplugged?)")

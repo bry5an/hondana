@@ -44,7 +44,7 @@ READINGS_VERSION = 1
 # romaji (murakami), hiragana (かぜがつよく) and the EPUB's own kana readings find
 # Japanese titles, authors and series.
 _SOURCES = {
-    "catalog": (lambda cfg: (cfg.audiobook_data, cfg.audiobook_catalog_extra),
+    "catalog": (audiobook_catalog.sources,
                 ("title", "series", "author", "narrators", "description_full", "readings")),
     "audiobooks": (lambda cfg: (cfg.audiobook_index,),
                    ("title", "author", "series", "readings")),

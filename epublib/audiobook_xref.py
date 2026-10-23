@@ -130,7 +130,10 @@ class _Matcher:
 
     def __init__(self, audiobooks: dict, min_score: float) -> None:
         self.min_score = min_score
-        self.cands = [_Candidate(isbn, ab) for isbn, ab in audiobooks.items()]
+        # A row guessed from a file name is never linked on its own (a picker
+        # or a hand edit can still link it).
+        self.cands = [_Candidate(isbn, ab) for isbn, ab in audiobooks.items()
+                      if ab.get("source") != "filename"]
 
     def best(self, book: dict) -> tuple[str, float] | None:
         bt = match_key(book.get("title"))
@@ -190,7 +193,9 @@ def _local_by_key(cfg: Config) -> dict:
     if not ab_files:
         print("audiobook_files.json empty; run `python cli.py audio-scan` "
               "for local-availability data.")
-    return {e["catalog_key"]: e for e in ab_files.values() if e.get("catalog_key")}
+    # By catalog key, else ab_id: a local file's own catalog row is keyed by its
+    # ab_id (audiobook_catalog.local_row), so it links (and syncs) like any other.
+    return {e.get("catalog_key") or e["ab_id"]: e for e in ab_files.values()}
 
 
 def _link_for(book: dict, matcher: _Matcher | None, audiobooks: dict,
