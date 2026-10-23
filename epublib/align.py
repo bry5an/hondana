@@ -1,0 +1,467 @@
+"""Audio↔text sync: match an audiobook's SRT cues to a book's sentences.
+
+The phone highlights the sentence being spoken and jumps the player to a tapped
+one. It has the reader pack's `sents` spans but not the sentence text, so the
+matching happens here: an SRT produced elsewhere (SubPlz / Whisper) is
+ingested, its cues are located in the book's text, and the result is stored
+against the pack's own anchors:
+
+    {"schema": 2, "book_id": …, "sha256": …, "audiobook": "<ab_id>",
+     "srt_sha": …, "coverage": 0.96, "ok": true, "matched": 812, "total": 846,
+     "docs": [{"index": 3, "fnv": "9a3f01bc",
+               "sents": [[startMs, endMs, part?] | null, …]}, …]}
+
+`docs[].sents[i]` lines up with the pack's `docs[].sents[i]` (both come from
+`annotate._sentence_spans`); `null` marks a sentence no cue matched. `fnv` is
+the pack document's, so the phone can refuse a map built against another text.
+`part` is the file name of the mp3 a sentence is in, for an `mp3-folder`
+audiobook (time is per part there); it is absent for a single m4b.
+`ok` is `coverage >= OK_COVERAGE`: below it the map is still served, so the
+phone can decline to highlight rather than show one that drifts.
+
+Matching works on the base text: NFKC, katakana folded to hiragana, and
+everything that isn't a letter or number dropped (ruby readings are already
+absent from `dom_text`). A cue is located by voting with its character
+bigrams, in a window ahead of the previous match (a wide search for a long cue
+the narrator jumped to), then verified with difflib. Time is linear in the
+book's text across a matched cue, so a cue that spans two sentences, or a
+sentence split over two cues, gets a boundary inside the cue.
+
+Storage (data/alignments/): the raw SRT, `{book_id}.srt` (or one
+`{book_id}.{NNN}.srt` per mp3, by position in the audiobook's file list), is
+the hand-supplied part and is kept so the map can be re-matched without
+re-transcribing. `{book_id}.json` is the derived map, rebuilt from the SRT when
+the schema or the book's sha256 changes.
+"""
+from __future__ import annotations
+
+import hashlib
+import json
+import os
+import re
+import shutil
+import tempfile
+import threading
+import unicodedata
+from bisect import bisect_left
+from collections import Counter
+from dataclasses import dataclass
+from difflib import SequenceMatcher
+from pathlib import Path
+
+from . import annotate
+from .config import Config
+
+ALIGN_SCHEMA = 2  # 2: the matcher no longer lets a repeated line skip ahead
+OK_COVERAGE = 0.90
+
+_BIN = 8            # offset votes are pooled in bins this wide (insertions shift offsets)
+_PAD = 24           # slack around the voted position when verifying a cue
+_NEAR_MIN = 1500    # how far ahead of the last match a cue is looked for first
+_WIDE_MIN_LEN = 8   # only a cue this long is distinctive enough to jump for
+_MIN_RATIO = 0.6    # share of a cue's characters difflib must find in the book
+_WIDE_RATIO = 0.75  # ... when the match is far from where the narrator was
+_MIN_SENT_COVER = 0.5  # share of a sentence's characters cues must cover
+_TRUST_GAP = 120    # a hit further than this past the cursor must be confirmed: a next cue just behind it
+_CONFIRM_CUES = 2   # how many following cues are tried to confirm one
+_CANDIDATES = 4     # voted places verified per cue
+
+
+class AlignError(Exception):
+    """The alignment can't be produced or served. `reason`: no_audiobook |
+    audiobook_changed | bad_srt | bad_part."""
+
+    def __init__(self, reason: str, detail: str = "") -> None:
+        super().__init__(detail or reason)
+        self.reason = reason
+
+
+@dataclass(frozen=True)
+class Cue:
+    start: int  # ms
+    end: int
+    text: str
+    part: str | None = None
+
+
+# ── SRT ──────────────────────────────────────────────────────────────────────
+
+_TIME = re.compile(
+    r"(\d+):(\d{1,2}):(\d{1,2})[,.](\d{1,3})\s*-->\s*(\d+):(\d{1,2}):(\d{1,2})[,.](\d{1,3})")
+
+
+def _ms(h: str, m: str, s: str, frac: str) -> int:
+    return ((int(h) * 60 + int(m)) * 60 + int(s)) * 1000 + int(frac.ljust(3, "0"))
+
+
+def parse_srt(text: str, part: str | None = None) -> list[Cue]:
+    """The cues of an SRT, in file order. Lenient: BOM, CRLF, `.` for `,`, a
+    missing index line, a cue with no text (dropped)."""
+    cues: list[Cue] = []
+    for block in re.split(r"\n\s*\n", text.lstrip("﻿").replace("\r\n", "\n").replace("\r", "\n")):
+        lines = [ln for ln in block.split("\n") if ln.strip()]
+        for i, ln in enumerate(lines):
+            m = _TIME.search(ln)
+            if m:
+                body = " ".join(x.strip() for x in lines[i + 1:]).strip()
+                if body:
+                    g = m.groups()
+                    cues.append(Cue(_ms(*g[:4]), _ms(*g[4:]), body, part))
+                break
+    return cues
+
+
+# ── matching ─────────────────────────────────────────────────────────────────
+
+_READING = re.compile(r"[（(][ぁ-ゖァ-ヺー]+[）)]")
+
+
+def norm(s: str) -> str:
+    """The comparison form: NFKC, katakana as hiragana, letters and numbers only."""
+    out = []
+    for ch in unicodedata.normalize("NFKC", s):
+        if unicodedata.category(ch)[0] in ("L", "N"):
+            if "ァ" <= ch <= "ヶ":
+                ch = chr(ord(ch) - 0x60)
+            out.append(ch.lower())
+    return "".join(out)
+
+
+def cue_norm(text: str) -> str:
+    """A cue's comparison form; kana readings in brackets (漢字（かんじ）) go."""
+    return norm(_READING.sub("", unicodedata.normalize("NFKC", text)))
+
+
+def _bigrams(b: str) -> dict[str, list[int]]:
+    index: dict[str, list[int]] = {}
+    for i in range(len(b) - 1):
+        index.setdefault(b[i:i + 2], []).append(i)
+    return index
+
+
+def _locate(b: str, index: dict, c: str, lo: int, hi: int, min_ratio: float):
+    """`(start, end)` in `b` of cue text `c` searched for within `[lo, hi)`, or None."""
+    m = len(c)
+    if m < 4:  # too short to vote: an exact hit close behind the cursor or nothing
+        i = b.find(c, lo, min(hi, lo + 60))
+        return (i, i + m) if i >= 0 else None
+    votes: Counter = Counter()
+    for k in range(m - 1):
+        pos = index.get(c[k:k + 2])
+        if not pos:
+            continue
+        i, j = bisect_left(pos, lo), bisect_left(pos, hi)
+        if j - i > 30:  # a bigram everywhere says nothing about where
+            continue
+        for p in pos[i:j]:
+            votes[(p - k) // _BIN] += 1
+    if not votes:
+        return None
+    # Vote counts alone mislead (a sentence that repeats a phrase out-votes the exact
+    # line), so the few best places are each verified, and of those that fit equally
+    # well the nearest wins: a short line is most likely the next one.
+    scored = sorted(((votes[bn] + votes[bn + 1], bn) for bn in votes), key=lambda t: (-t[0], t[1]))
+    need = max(3, int((m - 1) * 0.2))
+    best_hit, best_key, tried = None, None, []
+    for n, bn in scored:
+        if n < need or len(tried) == _CANDIDATES:
+            break
+        if any(abs(bn - t) <= 2 for t in tried):  # the same place, one bin over
+            continue
+        tried.append(bn)
+        r0 = max(lo, bn * _BIN - _PAD)
+        region = b[r0:bn * _BIN + 2 * _BIN + m + _PAD]
+        blocks = [x for x in SequenceMatcher(None, c, region, autojunk=False).get_matching_blocks() if x.size]
+        if not blocks:
+            continue
+        ratio = sum(x.size for x in blocks) / m
+        if ratio < min_ratio:
+            continue
+        hit = (r0 + blocks[0].b, r0 + blocks[-1].b + blocks[-1].size)
+        key = (round(ratio, 1), -hit[0])
+        if best_key is None or key > best_key:
+            best_hit, best_key = hit, key
+    return best_hit
+
+
+def match_cues(sentences: list[str], cues: list[Cue]) -> list[list | None]:
+    """One `[startMs, endMs]` (+ part name when the cues have one) or None per
+    sentence. `sentences` are the sentences' plain text, in book order."""
+    norms = [norm(s) for s in sentences]
+    b = "".join(norms)
+    bounds, at = [], 0
+    for n in norms:
+        bounds.append((at, at + len(n)))
+        at += len(n)
+    index = _bigrams(b)
+    part_end: dict[str | None, int] = {}
+    anchors: list[tuple[int, int, Cue]] = []  # (b start, b end, cue), increasing
+    cue_texts = [cue_norm(cue.text) for cue in cues]
+
+    def confirmed(k: int, end: int) -> bool:
+        """Whether one of the next cues after `k` is found just past `end`. A short
+        or common line ("よろしくね", "ありがとうございます") turns up many times in a
+        book; a hit far from where the narrator was is only believed if what is
+        said next follows it, or the cursor would skip everything between."""
+        rest = [t for t in cue_texts[k + 1:k + 1 + 4 * _CONFIRM_CUES] if t][:_CONFIRM_CUES]
+        if not rest:
+            return True
+        return any(_locate(b, index, t, end, end + 2 * _TRUST_GAP + 6 * len(t), _MIN_RATIO)
+                   for t in rest)
+
+    cursor = 0
+    for k, cue in enumerate(cues):
+        part_end[cue.part] = max(part_end.get(cue.part, 0), cue.end)
+        c = cue_texts[k]
+        if not c or cursor >= len(b):
+            continue
+        hit = _locate(b, index, c, cursor, cursor + max(_NEAR_MIN, 10 * len(c)), _MIN_RATIO)
+        if hit is None and len(c) >= _WIDE_MIN_LEN:
+            hit = _locate(b, index, c, cursor, len(b), _WIDE_RATIO)
+        if hit and hit[0] - cursor > _TRUST_GAP and not confirmed(k, hit[1]):
+            hit = None
+        if hit and hit[1] > hit[0]:
+            anchors.append((hit[0], hit[1], cue))
+            cursor = hit[1]
+
+    def at_time(pos: int, a: tuple[int, int, Cue]) -> int:
+        bs, be, cue = a
+        return round(cue.start + (pos - bs) / (be - bs) * (cue.end - cue.start))
+
+    out: list[list | None] = []
+    ai = 0
+    for s, e in bounds:
+        while ai < len(anchors) and anchors[ai][1] <= s:
+            ai += 1
+        hits = []
+        j = ai
+        while j < len(anchors) and anchors[j][0] < e:
+            hits.append(anchors[j])
+            j += 1
+        covered = sum(min(e, be) - max(s, bs) for bs, be, _ in hits)
+        if not hits or e <= s or covered / (e - s) < _MIN_SENT_COVER:
+            out.append(None)
+            continue
+        first, last = hits[0], hits[-1]
+        start = at_time(max(s, first[0]), first)
+        part = first[2].part
+        if last[2].part == part:
+            end = at_time(min(e, last[1]), last)
+        else:  # time is per part: a sentence can't run across the join
+            end = part_end[part]
+        row: list = [start, max(end, start + 1)]
+        if part is not None:
+            row.append(part)
+        out.append(row)
+    return out
+
+
+# ── storage ──────────────────────────────────────────────────────────────────
+
+def _srt_path(cfg: Config, book_id: str, index: int | None = None) -> Path:
+    return cfg.alignments_dir / (f"{book_id}.srt" if index is None else f"{book_id}.{index:03d}.srt")
+
+
+def work_dir(cfg: Config, book_id: str) -> Path:
+    """Scratch space of a running or interrupted `align_jobs` run. It sits
+    in a dot-folder, which the `{book_id}.*` sweep of `delete` and the purge never match."""
+    return cfg.alignments_dir / ".work" / book_id
+
+
+def book_text(cfg: Config, book: dict) -> str:
+    """The book's sentences, one per line: what SubPlz is given as `{text}`, so
+    the cues it returns are the sentences `match_cues` compares against. Written
+    by `align_jobs` for a run here and served by `GET …/alignment/text` for one
+    on another machine. A line break inside a sentence would split it.
+    Raises annotate.NoPack for a book that can't have sentences."""
+    sentences = [" ".join(t.split()) for d in annotate.sentence_texts(cfg, book) for t in d["texts"]]
+    return "\n".join(s for s in sentences if s) + "\n"
+
+
+def map_path(cfg: Config, book_id: str) -> Path:
+    return cfg.alignments_dir / f"{book_id}.json"
+
+
+def _write(path: Path, data: bytes) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.", suffix=".tmp")
+    try:
+        os.fchmod(fd, 0o644)
+        with os.fdopen(fd, "wb") as f:
+            f.write(data)
+        os.replace(tmp, path)
+    except BaseException:
+        Path(tmp).unlink(missing_ok=True)
+        raise
+
+
+_locks: dict[str, threading.Lock] = {}
+_locks_guard = threading.Lock()
+
+
+def _book_lock(book_id: str) -> threading.Lock:
+    with _locks_guard:
+        return _locks.setdefault(book_id, threading.Lock())
+
+
+def _sources(cfg: Config, book_id: str, files: list[str] | None) -> list[tuple[str | None, Path]]:
+    """The stored SRTs of a book, in play order, as `(part name, path)`."""
+    if files:
+        found = [(f, _srt_path(cfg, book_id, i)) for i, f in enumerate(files)]
+        return [(f, p) for f, p in found if p.exists()]
+    p = _srt_path(cfg, book_id)
+    return [(None, p)] if p.exists() else []
+
+
+def srt_bytes(cfg: Config, book_id: str, files: list[str] | None, part: str | None) -> bytes | None:
+    """The raw SRT: the whole file, or one mp3's when `part` names it."""
+    if files:
+        if part not in files:
+            raise AlignError("bad_part", "this audiobook has several files; pass ?part=<file name>")
+        path = _srt_path(cfg, book_id, files.index(part))
+    else:
+        path = _srt_path(cfg, book_id)
+    return path.read_bytes() if path.exists() else None
+
+
+def _srt_sha(sources: list[tuple[str | None, Path]]) -> str:
+    h = hashlib.sha256()
+    for name, path in sources:
+        h.update(f"{name}\0".encode())
+        h.update(path.read_bytes())
+    return h.hexdigest()
+
+
+def etag(m: dict) -> str:
+    return f'"{m["schema"]}-{m["sha256"][:16]}-{m["srt_sha"][:8]}"'
+
+
+def _load_map(cfg: Config, book_id: str) -> dict | None:
+    try:
+        data = json.loads(map_path(cfg, book_id).read_text("utf-8"))
+    except (OSError, ValueError):
+        return None
+    return data if isinstance(data, dict) and "schema" in data else None
+
+
+def _rebuild(cfg: Config, book: dict, ab_id: str, files: list[str] | None, sha: str) -> dict:
+    sources = _sources(cfg, book["book_id"], files)
+    cues: list[Cue] = []
+    for name, path in sources:
+        cues += parse_srt(path.read_text("utf-8-sig", errors="replace"), name)
+    if not cues:
+        raise AlignError("bad_srt", "no cues found in the SRT")
+    docs = annotate.sentence_texts(cfg, book)
+    rows = match_cues([t for d in docs for t in d["texts"]], cues)
+    out_docs, at, matched = [], 0, 0
+    for d in docs:
+        sents = rows[at:at + len(d["texts"])]
+        at += len(d["texts"])
+        matched += sum(1 for s in sents if s)
+        out_docs.append({"index": d["index"], "fnv": d["fnv"], "sents": sents})
+    total = len(rows)
+    coverage = round(matched / total, 4) if total else 0.0
+    result = {
+        "schema": ALIGN_SCHEMA, "book_id": book["book_id"], "sha256": sha, "audiobook": ab_id,
+        "srt_sha": _srt_sha(sources), "coverage": coverage, "ok": coverage >= OK_COVERAGE,
+        "matched": matched, "total": total, "docs": out_docs,
+    }
+    _write(map_path(cfg, book["book_id"]),
+           json.dumps(result, ensure_ascii=False, separators=(",", ":")).encode("utf-8"))
+    return result
+
+
+def ingest(cfg: Config, book: dict, ab_id: str | None, files: list[str] | None,
+           srt_text: str, part: str | None = None) -> dict:
+    """Store an SRT for the book's linked audiobook and match it. Returns the map.
+    `files` is the audiobook's mp3 list (None for a single m4b); `part` then
+    names the mp3 this SRT is for."""
+    return ingest_parts(cfg, book, ab_id, files, {part: srt_text})
+
+
+def ingest_parts(cfg: Config, book: dict, ab_id: str | None, files: list[str] | None,
+                 srts: dict[str | None, str]) -> dict:
+    """`ingest` for several SRTs at once, keyed by mp3 file name (None for a
+    single m4b): all are stored, then matched in one rebuild. If that fails,
+    every SRT goes back to what it was, so a rejected run leaves the previous
+    alignment alone."""
+    if not ab_id:
+        raise AlignError("no_audiobook", "link a local audiobook first")
+    paths: dict[str | None, Path] = {}
+    for part, text in srts.items():
+        if files:
+            if part not in files:
+                raise AlignError("bad_part", "this audiobook has several files; pass part=<file name>")
+            paths[part] = _srt_path(cfg, book["book_id"], files.index(part))
+        else:
+            paths[part] = _srt_path(cfg, book["book_id"])
+        if not parse_srt(text):
+            raise AlignError("bad_srt", "no cues found in the SRT")
+    sha = annotate.book_sha(cfg, book)
+    with _book_lock(book["book_id"]):
+        before = {part: path.read_bytes() if path.exists() else None for part, path in paths.items()}
+        try:
+            for part, path in paths.items():
+                _write(path, srts[part].encode("utf-8"))
+            return _rebuild(cfg, book, ab_id, files, sha)
+        except BaseException:  # a book that can't have sentences keeps no orphan SRT
+            for part, path in paths.items():
+                if before[part] is None:
+                    path.unlink(missing_ok=True)
+                else:
+                    _write(path, before[part])
+            raise
+
+
+def ensure(cfg: Config, book: dict, ab_id: str | None, files: list[str] | None) -> dict | None:
+    """The book's current map, re-matched from the stored SRT if the schema or
+    the book changed; None when it has no alignment. Raises AlignError
+    `audiobook_changed` when the SRT belongs to a different audiobook than the
+    one linked now, `no_audiobook` when none is local, and annotate.NoPack for
+    a book that can't have sentences."""
+    book_id = book["book_id"]
+    m = _load_map(cfg, book_id)
+    if m is None and not _sources(cfg, book_id, files):
+        return None
+    if not ab_id:
+        raise AlignError("no_audiobook", "the linked audiobook is not on this machine")
+    if m is not None and m.get("audiobook") != ab_id:
+        raise AlignError("audiobook_changed", "the book is linked to a different audiobook than the SRT was made for")
+    sha = annotate.book_sha(cfg, book)
+    with _book_lock(book_id):
+        m = _load_map(cfg, book_id)
+        if m is not None and m.get("schema") == ALIGN_SCHEMA and m.get("sha256") == sha:
+            return m
+        return _rebuild(cfg, book, ab_id, files, sha)
+
+
+def state(cfg: Config, book: dict, ab_id: str | None, job: dict | None = None) -> dict:
+    """What `GET /api/books/{id}/status` reports; reads only the stored map, never
+    rebuilds. `state`: none | ready | stale (the book, the schema or the linked
+    audiobook changed since it was made — a GET re-matches or says why not) |
+    queued | running (an `align_jobs` run, which replaces the stored
+    state while it lasts). A failed run keeps the stored state and adds `error`,
+    since it never touches the stored alignment."""
+    m = _load_map(cfg, book["book_id"])
+    if m is None:
+        out = {"state": "none", "coverage": None, "ok": None}
+    else:
+        fresh = (m.get("schema") == ALIGN_SCHEMA and m.get("audiobook") == ab_id
+                 and m.get("sha256") == (book.get("sha256") or m.get("sha256")))
+        out = {"state": "ready" if fresh else "stale", "coverage": m.get("coverage"), "ok": m.get("ok")}
+    if job and job["state"] in ("queued", "running"):
+        out.update(state=job["state"], step=job.get("step"))
+    elif job and job["state"] == "error":
+        out["error"] = job.get("error")
+    return out
+
+
+def delete(cfg: Config, book_id: str) -> bool:
+    """Remove the book's SRT(s) and map. Whether anything was there."""
+    found = False
+    shutil.rmtree(work_dir(cfg, book_id), ignore_errors=True)
+    if cfg.alignments_dir.is_dir():
+        for f in cfg.alignments_dir.glob(f"{book_id}.*"):
+            f.unlink(missing_ok=True)
+            found = True
+    return found

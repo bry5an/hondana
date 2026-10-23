@@ -1,0 +1,329 @@
+.add-card {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+.add-card h2 { margin: 0; }
+.add-card p { margin: 0; color: var(--muted); font-size: 0.82rem; line-height: 1.5; }
+#freq-more { margin-top: 12px; min-height: 40px; }
+/* The import form: dropzone, paste, Format, Mode, Import, spaced as a card's blocks. */
+#import-form { display: flex; flex-direction: column; gap: 14px; }
+.field { display: flex; flex-direction: column; gap: 6px; }
+fieldset.field { display: block; margin: 0; padding: 0; border: 0; min-width: 0; }
+/* Field labels and legends: the STYLE §9 caption (Space Mono, uppercase, muted). */
+.field > label,
+.field > legend {
+  font: 700 0.69rem 'Space Mono', monospace;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.field > legend { padding: 0; margin-bottom: 6px; }
+.radio-group { display: flex; gap: 4px 16px; flex-wrap: wrap; }
+.radio-group label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.875rem;
+  color: var(--text);
+  cursor: pointer;
+}
+.radio-group input[type="radio"] { accent-color: var(--accent); }
+@media (max-width: 639px) {
+  .radio-group label { min-height: 44px; }   /* the label is the hit area, not the 13px radio */
+}
+
+/* The dropzone itself is the shared component in app.css; this is /known's chosen-file line. */
+.dz-chosen:not(:empty) {
+  display: block;
+  margin-top: 4px;
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: var(--ok-ink);
+  overflow-wrap: anywhere;
+}
+
+/* STYLE §9 input: 2px border, 12px radius; 1rem on phones so iOS doesn't zoom on focus. */
+.field textarea {
+  background: var(--panel2);
+  color: var(--text);
+  border: 2px solid var(--border);
+  border-radius: 12px;
+  padding: 10px 13px;
+  font-size: 0.9rem;
+  min-height: 110px;
+  resize: vertical;
+  font-family: inherit;
+}
+.field textarea::placeholder { color: var(--muted); opacity: 1; }
+.field textarea:focus { border-color: var(--accent); }
+@media (max-width: 639px) {
+  .field textarea { font-size: 1rem; }
+}
+
+.submit-btn {
+  align-self: flex-start;
+  padding: 10px 20px;
+  font-size: 0.9rem;
+}
+
+.snapshots { margin: 0; }
+/* The /add disclosure look (Baloo summary, accent chevron), at a 32px target. */
+.snapshots summary {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 32px;
+  cursor: pointer;
+  font: 700 0.92rem 'Baloo 2', 'Hanken Grotesk', sans-serif;
+  color: var(--text);
+  list-style: none;
+}
+.snapshots summary::-webkit-details-marker { display: none; }
+.snapshots summary::before {
+  content: "chevron_right";
+  font-family: "Material Symbols Rounded";
+  font-feature-settings: "liga";
+  font-weight: 400;
+  color: var(--accent);
+}
+.snapshots[open] summary::before { content: "expand_more"; }
+.snapshots p { margin: 8px 0 0; color: var(--muted); font-size: 0.82rem; }
+.snapshot-list { list-style: none; margin: 8px 0; padding: 0; }
+.snapshot-list li {
+  display: flex; justify-content: space-between; align-items: center; gap: 12px;
+  padding: 8px 0; border-top: 1px solid var(--border, rgba(128, 128, 128, 0.25));
+}
+.snapshot-list small { display: block; color: var(--muted); font-size: 0.78rem; margin-top: 2px; }
+
+/* The status strip (#252): one quiet line, so the review list starts near the top. */
+.list-strip { padding-top: 12px; padding-bottom: 12px; gap: 12px; }
+.known-summary { font-size: 0.9rem; line-height: 1.5; color: var(--muted); }
+.known-summary strong { color: var(--text); font-size: 1rem; }
+.known-summary .sep { margin: 0 6px; }
+.known-exposed a { color: var(--accent-ink); }
+.known-summary a { color: var(--accent-ink); }
+/* A failed load says so in body text. */
+.known-summary-err { color: var(--danger-ink); }
+.known-summary-err .link-btn { color: inherit; }
+
+/* Review's one-line brief and its fold-out explanation; Manage's fold. */
+.freq-sub { margin: -10px 0 0; }
+.howto summary, .manage-fold > summary {
+  cursor: pointer;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--accent-ink);
+}
+.howto p { margin-top: 8px; }
+.manage-fold[open] { display: flex; flex-direction: column; gap: 18px; }
+.manage-fold[open] > summary { margin-bottom: -6px; }
+
+/* Card heading with its ⋯ (moreBtn) at the end: the Manage card's Clear. */
+.card-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.card-head .row-menu-btn {
+  flex: none;
+  width: 34px;
+  height: 34px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--panel);
+  color: var(--muted);
+  border: 2px solid var(--border);
+  border-radius: 999px;
+  font-size: 1.1rem;
+  line-height: 1;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+.card-head .row-menu-btn:hover { background: var(--panel2); color: var(--text); border-color: var(--accent); }
+
+#seed-base { display: flex; flex-direction: column; align-items: flex-start; gap: 10px; }
+#seed-increment { display: flex; flex-direction: column; gap: 12px; margin-top: 4px; }
+.seed-preview-words {
+  max-height: 260px;
+  overflow-y: auto;
+  display: flex;
+  flex-wrap: wrap;
+  align-content: flex-start;
+  gap: 6px 8px;
+  padding: 12px;
+  background: var(--panel2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-size: 0.85rem;
+}
+.seed-preview-words span {
+  padding: 2px 9px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--text);
+  white-space: nowrap;
+}
+.seed-preview-actions { display: flex; gap: 10px; align-items: center; }
+
+/* Review list: the library's most widely-used unknown words. It scrolls with the page
+   (no inner scroller), and below 520px of card width the number columns drop out and
+   the reading and reach ride under the word, so the buttons stay on screen (#244). */
+#freq-card { container: freq / inline-size; }
+.freq-table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+.freq-table th {
+  text-align: left;
+  font-size: 0.72rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--muted);
+  padding: 0 8px 8px;
+}
+.freq-table th.freq-n { text-align: right; }
+.freq-table td { padding: 8px; border-top: 1px solid var(--border); vertical-align: middle; }
+.freq-word { font-size: 0.95rem; }
+.freq-w { white-space: nowrap; }
+.freq-alt, .freq-reading { color: var(--muted); font-size: 0.75rem; }
+.freq-reading { white-space: nowrap; }
+.freq-meta { display: none; }
+.freq-n {
+  color: var(--muted);
+  text-align: right;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+/* Two narrow columns, each headed by what its button does: a row of icons repeated down
+   a hundred rows said nothing once the intro paragraph scrolled away (#251). A hairline
+   keeps the ✓ off the ⊘ it sits beside, so a thumb doesn't land on the wrong one. */
+.freq-mark { width: 1%; text-align: center; white-space: nowrap; }
+.freq-table th.freq-mark { text-align: center; padding-left: 12px; padding-right: 12px; }
+.freq-markcol { border-left: 1px solid var(--border); }
+@container freq (max-width: 520px) {
+  .freq-table .freq-reading,
+  .freq-table .freq-books,
+  .freq-table .freq-uses { display: none; }
+  .freq-table td { padding: 10px 0; }
+  .freq-table td.freq-mark, .freq-table th.freq-mark { padding: 10px 0 10px 10px; }
+  .freq-table th.freq-mark { padding-top: 0; padding-bottom: 8px; }
+  .freq-table th { padding: 0 0 8px; }
+  /* No room for header words on a phone: they stay for screen readers, and the first
+     row's buttons spell themselves out instead. */
+  .freq-h-text {
+    position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap;
+  }
+  .freq-table tbody tr:first-child .skip-btn::after,
+  .freq-table tbody tr:first-child .mark-btn::after { margin-left: 4px; font-size: 0.75rem; font-weight: 600; }
+  .freq-table tbody tr:first-child .skip-btn::after { content: "Skip"; }
+  .freq-table tbody tr:first-child .mark-btn::after { content: "Know"; }
+  .freq-meta { display: block; margin-top: 3px; font-size: 0.75rem; color: var(--muted); }
+}
+
+/* The running tally ("4 words marked known · 7,016 on your list") pins to the bottom
+   of the screen while the list scrolls past, so a tick is acknowledged where the
+   thumb is; on a phone the sidebar's count is in a closed drawer. Drawn as a floating
+   pill only while it has something to say. */
+.freq-status {
+  position: sticky;
+  bottom: 12px;
+  z-index: 2;
+  align-self: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  text-align: center;
+}
+.freq-status:has(.mark-status:not(:empty)) {
+  padding: 8px 16px;
+  background: var(--panel);
+  border: 2px solid var(--border);
+  border-radius: 16px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25);
+}
+.freq-status .mark-status { margin: 0; min-height: 0; }
+.freq-status .mark-status:empty { display: none; }
+.freq-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; }
+.freq-page { display: flex; align-items: center; gap: 8px; font-size: 0.8rem; color: var(--muted); }
+.freq-page select {
+  background: var(--panel2);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 4px 8px;
+  font: inherit;
+}
+#freq-bulk { margin-left: auto; }
+.freq-keys { margin: 10px 0 0; font-size: 0.78rem; color: var(--muted); }
+.freq-keys kbd {
+  font: 700 0.72rem 'Space Mono', monospace;
+  color: var(--text);
+  background: var(--panel2);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  padding: 1px 6px;
+}
+/* Off-screen until focused, so the first Tab on the card offers the way past the list. */
+.freq-skip:not(:focus) {
+  position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap;
+}
+.freq-skip { display: inline-block; margin-top: 8px; font-size: 0.85rem; }
+#freq-after { height: 0; outline: none; }
+.freq-table tbody tr:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; border-radius: 6px; }
+.freq-filters { display: flex; gap: 8px; }
+.freq-filters button {
+  background: var(--panel2);
+  color: var(--muted);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 4px 14px;
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+.freq-filters button.active { color: var(--text); border-color: var(--accent); }
+/* The sticky tally pill covers the row under it while the list scrolls; a row that arrives
+   by keyboard (scrollIntoView) is kept clear of it. */
+.freq-table tbody tr { scroll-margin-bottom: 84px; }
+@media (max-width: 639px) {
+  /* The review loop is thumb work: 44px targets (STYLE §13's 32px is the floor for chrome),
+     ✓ and ⊘ opposite in meaning and a clear 12px apart (#254). */
+  .freq-table .mark-btn, .freq-table .skip-btn { min-width: 44px; min-height: 44px; }
+  .freq-table td.freq-mark { padding-left: 12px; }
+  .freq-table td.freq-markcol { padding-left: 14px; }
+  .freq-filters button, .freq-page select, #freq-bulk, #freq-more, .aside-undo { min-height: 44px; }
+  .freq-filters button { padding: 4px 18px; }
+  .aside-undo { padding: 4px 14px; }
+  .aside-list li { padding-top: 2px; padding-bottom: 2px; }
+  /* One docked line at the foot of the screen rather than a floating two-line card. */
+  .freq-status { bottom: 0; align-self: stretch; }
+  .freq-status:has(.mark-status:not(:empty)) {
+    padding: 8px 12px calc(8px + env(safe-area-inset-bottom));
+    border-width: 1px 0 0;
+    border-radius: 12px 12px 0 0;
+    flex-direction: row;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 2px 14px;
+  }
+  .freq-status .mark-status { font-size: 0.75rem; }
+}
+.freq-empty { color: var(--muted); font-size: 0.85rem; }
+
+.status { font-size: 0.875rem; }
+.status-ok {
+  color: var(--en);
+  background: color-mix(in srgb, var(--en) 12%, var(--panel));
+  border: 1px solid color-mix(in srgb, var(--en) 35%, transparent);
+  border-radius: 8px;
+  padding: 10px 14px;
+  line-height: 1.5;
+}
+.status-ok a, .status-ok .link-btn { color: var(--accent-ink); }
+/* A banner's follow-ups (Undo · see Read Next) keep together after the sentence. */
+.status-actions { margin-left: 6px; white-space: nowrap; }
+.status-err {
+  color: var(--danger-ink);
+  background: color-mix(in srgb, var(--danger) 10%, var(--panel));
+  border: 1px solid color-mix(in srgb, var(--danger) 30%, transparent);
+  border-radius: 8px;
+  padding: 10px 14px;
+}
+.status-pending { color: var(--muted); }

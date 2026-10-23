@@ -1,0 +1,333 @@
+/* ── dropzone: the shared .dropzone/.dz-* component lives in app.css ── */
+/* Once a file is staged the zone is hidden and the form around it is empty: no flex gap for it. */
+#upload-form:has(> .dropzone[hidden]) { display: none; }
+
+.dz-row {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  flex-wrap: wrap;
+  margin-top: 14px;
+}
+.submit-btn { padding: 11px 22px; font-size: 0.88rem; }
+
+/* ── secondary: add from URL ───────────────────────────────────────────── */
+.add-card > summary {
+  display: flex;
+  align-items: center;
+  min-height: 32px;
+  cursor: pointer;
+  font: 700 0.92rem 'Baloo 2', 'Hanken Grotesk', sans-serif;
+  color: var(--text);
+  list-style: none;
+}
+.add-card > summary::-webkit-details-marker { display: none; }
+.add-card > summary::before { content: "chevron_right"; font-family: "Material Symbols Rounded"; font-feature-settings: "liga"; vertical-align: middle; color: var(--accent); }
+.add-card[open] > summary::before { content: "expand_more"; }
+.add-card p {
+  margin: 10px 0 0;
+  color: var(--muted);
+  font-size: 0.8rem;
+  line-height: 1.5;
+}
+.url-body { display: flex; flex-direction: column; gap: 14px; margin-top: 14px; }
+.url-body input[type="url"] {
+  background: var(--panel2);
+  color: var(--text);
+  border: 2px solid var(--border);
+  border-radius: 12px;
+  padding: 10px 13px;
+  font-size: 0.9rem;
+  width: 100%;
+}
+.url-body input[type="url"]::placeholder { color: var(--muted); }  /* the browser's grey is 2.9:1 in dark */
+.url-body input[type="url"]:focus { border-color: var(--accent); }
+/* 16px on a phone, or iOS zooms the page on focus. */
+@media (max-width: 639px) { .url-body input[type="url"] { font-size: 1rem; } }
+
+/* ── status banners ───────────────────────────────────────────────────── */
+/* Empty, the live region stays in the accessibility tree (display:none would make the first
+   announcement unreliable) but takes no room — absolute, so it adds no flex gap either. */
+.status:empty { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+/* STYLE §12: the tone's colour mixed 10% into --panel with a 1px 30% border; the ink is the
+   §10 step for that tone (>= 4.5:1 on the tint, both themes). */
+.status-ok, .status-warn, .status-err, .status-pending {
+  --tone: var(--muted);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border: 1px solid color-mix(in srgb, var(--tone) 30%, transparent);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--tone) 10%, var(--panel));
+  padding: 10px 14px;
+  font: 700 0.82rem 'Baloo 2', 'Hanken Grotesk', sans-serif;
+  line-height: 1.4;
+}
+.status-ok      { --tone: var(--ok);     color: #2d7451; }
+.status-warn    { --tone: var(--warn);   color: #8b5c1b; }  /* added, with notes */
+.status-err     { --tone: var(--danger); color: #a33a4c; }
+.status-pending { color: var(--muted); }
+/* Files turned away: the names carry the weight, the reasons read as body copy. */
+#reject-note .status-err { font: 500 0.82rem/1.5 'Hanken Grotesk', sans-serif; }
+#reject-note .status-err strong { font-weight: 700; }
+/* A cover that didn't load (or none): STYLE §6's glyph on the well, not an empty box. */
+.cover-ph { display: grid; place-items: center; flex: none; color: var(--muted); font-size: 1.2rem; }
+body.dark .status-ok   { color: #8fd6a8; }
+body.dark .status-warn { color: #e0b878; }
+body.dark .status-err  { color: #f0a6b0; }
+.status-ok a, .status-warn a, .status-err a, .status-pending a { color: inherit; }
+/* A batch summary's second line: how the books were filed, in the body face. */
+.sum-filed { display: block; margin-top: 2px; font: 500 0.8rem/1.45 'Hanken Grotesk', sans-serif; }
+
+/* A duplicate is not an error: a neutral well that shows the book you already own. */
+.status-dup {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px 14px;
+  background: var(--panel);
+  border: 2px solid var(--border);
+  border-radius: 12px;
+  padding: 10px 14px;
+  color: var(--text);
+}
+.status-dup:focus { outline: none; }
+.dup-cover { width: 44px; height: 64px; flex: none; object-fit: cover; border-radius: 6px; background: var(--panel2); }
+.dup-body { flex: 1 1 200px; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.dup-head { font: 700 0.7rem 'Space Mono', monospace; letter-spacing: 0.04em; text-transform: uppercase; color: var(--muted); }
+.dup-title { font: 700 0.95rem 'Baloo 2', 'Hanken Grotesk', sans-serif; overflow-wrap: anywhere; }
+.dup-meta { font-size: 0.78rem; color: var(--muted); }
+.dup-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+.dup-actions .ghost-btn { display: inline-flex; align-items: center; min-height: 36px; border: 2px solid var(--border); border-radius: 10px; text-decoration: none; }
+/* Inline actions in a banner or queue row ("Open it · Add anyway", "Retry"): ≥ 32px tall. */
+.status .link-btn, .uq-state .link-btn, .status-ok a, .status-warn a, .status-err a, .uq-state a {
+  display: inline-flex;
+  align-items: center;
+  min-height: 32px;
+}
+/* Outlined rather than filled: the glyph then inherits the banner's own
+   colour and stays legible on all three backgrounds, in both themes. */
+.status-dot {
+  width: 20px;
+  height: 20px;
+  flex: none;
+  border: 2px solid currentColor;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  font-size: 0.66rem;
+}
+.status-pending .status-dot { animation: pulse 1.1s ease-in-out infinite; }
+@keyframes pulse { 50% { opacity: 0.35; } }
+
+/* ── the edit form, folded under the result's metadata line ──────────── */
+.review-card {
+  background: var(--panel);
+  border: 2px solid var(--border);
+  border-radius: 18px;
+  padding: 18px 20px;
+  box-shadow: 0 4px 0 var(--card-shadow);
+}
+
+/* ── multi-file queue ──────────────────────────────────────────────── */
+/* The staged card: one row per file. */
+.staged-card { display: flex; flex-direction: column; gap: 10px; }
+.staged-card:focus { outline: none; }
+.staged-actions:empty { display: none; }
+#upload-queue { display: flex; flex-direction: column; gap: 6px; }
+#upload-queue:empty { display: none; }
+.uq-row {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(70px, 1fr) minmax(0, 2fr) 32px;
+  align-items: center;
+  gap: 12px;
+  background: var(--panel);
+  border: 2px solid var(--border);
+  border-radius: 12px;
+  padding: 8px 14px;
+  font-size: 0.8rem;
+}
+.uq-name { font-weight: 700; display: flex; align-items: baseline; min-width: 0; }
+.uq-name > a, .uq-name > span:first-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.uq-name a { color: inherit; text-decoration: underline dotted; text-underline-offset: 3px; }  /* a link on a phone too: no hover there */
+.uq-name a:hover { color: var(--accent); text-decoration-style: solid; }
+.uq-size { flex: none; margin-left: 8px; font-weight: 500; color: var(--muted); }
+.uq-x {
+  width: 32px; height: 32px; padding: 0; border: 0; border-radius: 50%;
+  background: none; color: var(--muted); font: 700 1.2rem/1 sans-serif; cursor: pointer;
+}
+.uq-x:hover { background: var(--panel2); color: var(--text); }
+.uq-cover { width: 36px; height: 52px; object-fit: cover; border-radius: 5px; background: var(--panel2); }
+.uq-main { min-width: 0; display: flex; flex-direction: column; gap: 5px; }
+.uq-chips { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; }
+.uq-chips:empty { display: none; }
+.uq-chips .chip { min-height: 0; font-size: 0.72rem; }  /* STYLE §8's top step: clear of the 11px floor */
+/* A file that went nowhere: a state icon where the bar would be. */
+.uq-row.uq-end { grid-template-columns: 24px minmax(0, 1fr) minmax(0, 1.4fr) 32px; }
+.uq-ico { display: flex; justify-content: center; color: var(--muted); }
+.uq-ico .mi { font-size: 1.3rem; }
+.uq-err .uq-ico { color: #a33a4c; }
+body.dark .uq-err .uq-ico { color: #f0a6b0; }
+.uq-study { font-size: 0.75rem; font-weight: 700; color: var(--accent-ink); text-decoration: underline dotted; text-underline-offset: 3px; align-self: center; display: inline-flex; align-items: center; min-height: 32px; }
+body.dark .uq-study { color: #ffc0d4; }
+.uq-study:hover { text-decoration-style: solid; }
+/* A finished book: its cover, title, how it reads — no bar, the bar's job is done. */
+.uq-row.uq-fin { grid-template-columns: 36px minmax(0, 1fr) auto; }
+.uq-fin .uq-state { text-align: right; }
+.uq-row.uq-fin.uq-warn { grid-template-columns: 36px minmax(0, 1fr); }
+.uq-fin.uq-warn .uq-state { text-align: left; }
+.uq-bar { height: 8px; border-radius: 8px; background: var(--panel2); overflow: hidden; }
+.uq-fill { display: block; height: 100%; width: 0; background: linear-gradient(90deg, var(--accent1), var(--accent2)); }
+/* The bar says what became of the file: coral while it goes up, then a state colour — green once
+   added, neutral for a duplicate or a cancel, amber with notes, red when it was not added — and it
+   pulses while the book is queued for / in analysis, when there is no progress to show (the same
+   pulse as the result's waiting readout). */
+.uq-done .uq-fill { background: var(--ok); }
+.uq-dup .uq-fill, .uq-cancelled .uq-fill { background: var(--muted); opacity: 0.45; }
+.uq-warn .uq-fill { background: #8b5c1b; }
+.uq-err .uq-fill { background: #a33a4c; }
+body.dark .uq-warn .uq-fill { background: #e0b878; }
+body.dark .uq-err .uq-fill { background: #f0a6b0; }
+.uq-held .uq-fill, .uq-work .uq-fill { width: 100% !important; animation: pulse 1.4s ease-in-out infinite; }
+@media (prefers-reduced-motion: reduce) {
+  .uq-held .uq-fill, .uq-work .uq-fill { animation: none; opacity: 0.4; }
+  .status-pending .status-dot { animation: none; }
+}
+.uq-state { color: var(--muted); overflow-wrap: anywhere; }
+.uq-state a { color: inherit; }
+.uq-done .uq-state { color: #2d7451; }
+.uq-warn .uq-state { color: #8b5c1b; }
+.uq-dup .uq-state, .uq-cancelled .uq-state { color: var(--muted); }
+.uq-err .uq-state { color: #a33a4c; }
+body.dark .uq-done .uq-state { color: #8fd6a8; }
+body.dark .uq-warn .uq-state { color: #e0b878; }
+body.dark .uq-err .uq-state { color: #f0a6b0; }
+@media (max-width: 899px) {
+  .uq-row.uq-fin { grid-template-columns: 36px minmax(0, 1fr); }
+  .uq-fin .uq-state { grid-column: 2; text-align: left; }
+  /* Name and × on the first line, the bar and the state under them. */
+  .uq-row { grid-template-columns: minmax(0, 1fr) 32px; gap: 4px 8px; }
+  .uq-bar, .uq-state { grid-column: 1 / -1; }
+  .uq-x { grid-row: 1; grid-column: 2; }
+  .uq-row.uq-end { grid-template-columns: 24px minmax(0, 1fr); }
+  .uq-end .uq-state { grid-column: 2; }
+  .uq-end .uq-x, .uq-end > span:last-child:empty { display: none; }
+  /* The name may take two lines, and its link is a 32px target (STYLE §13). */
+  .uq-name > a { display: flex; align-items: center; min-height: 32px; white-space: normal; }
+  .uq-t, .uq-name > span:first-child {
+    display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2;
+    white-space: normal; overflow: hidden; overflow-wrap: anywhere;
+  }
+}
+/* An outcome and its actions ("Already in your library (…)  Open it  Add anyway"): items that wrap
+   on their own, so no separator dangles at a line's end. */
+.uq-acts { display: flex; flex-wrap: wrap; align-items: center; gap: 0 14px; }
+.uq-acts > span { min-width: 0; overflow-wrap: anywhere; }
+
+/* ── the result: cover + title, the reading-load readout, where it lands ──
+   The hero and the readout are hero.css's; this is the /add arrangement. */
+.add-hero { flex-wrap: wrap; }
+.add-hero .book-cover { flex: 0 0 96px; }
+.add-head { flex: 1 1 160px; min-width: 0; display: flex; flex-direction: column; gap: 8px; justify-content: center; }
+.add-hero .readout { flex: 1 0 100%; max-width: none; }
+.add-readout { flex: 1 0 100%; display: flex; }
+.add-readout .readout { flex: 1 1 100%; }
+/* The arrival: said once, on the hero, until "Add another". */
+.add-arrived { margin: 0; display: flex; align-items: center; gap: 4px; font: 700 0.82rem/1.3 'Baloo 2', 'Hanken Grotesk', sans-serif; color: #2d7451; }
+.add-arrived .mi { font-size: 1.15em; }
+body.dark .add-arrived { color: #8fd6a8; }
+.add-meta { font-size: 0.82rem; color: var(--muted); display: flex; flex-wrap: wrap; align-items: center; gap: 2px 12px; }
+body.dark .add-meta { color: rgba(255, 255, 255, 0.78); }
+.edit-meta { color: var(--accent-ink); font-weight: 700; min-height: 32px; display: inline-flex; align-items: center; }
+.add-where { flex: 1 0 100%; display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; font-size: 0.82rem; }
+.add-where:empty { display: none; }
+/* Hero chips are functional text, as on /book: 12px (the chip default is 10.9px). */
+.add-where .chip { font-size: 0.75rem; }
+@media (max-width: 899px), (pointer: coarse) {
+  .add-where .chip { min-height: 32px; display: inline-flex; align-items: center; }  /* STYLE §13 */
+}
+/* The readout's caption over the dark hero, as on /book (0.55 white is 4.2:1 on the gradient). */
+body.dark .add-hero .readout-label { color: rgba(255, 255, 255, 0.74); }
+@media (max-width: 639px) {
+  .add-hero { padding: 14px; gap: 14px; }
+  .add-hero .book-cover { flex-basis: 80px; }
+  .add-head { flex-basis: 110px; }
+  .add-where .chip { min-height: 32px; display: inline-flex; align-items: center; }  /* STYLE §13; the span chips match the link's height, so the row doesn't grow when the level lands */
+  /* The chip and the "Lands in" line are two lines here whatever the chip says ("Matching Natively…"
+     is wider than "Natively Lv 12"), so the row is the same height in every state of the analysis. */
+  .add-where:has(.where-line) { flex-direction: column; align-items: flex-start; }
+}
+.where-line a { color: var(--accent-ink); font-weight: 700; display: inline-flex; align-items: center; min-height: 32px; text-decoration: none; }
+.where-line a:hover { text-decoration: underline; }
+body.dark .where-line a { color: #ffc0d4; }
+body.dark .add-hero .chip.level { background: #23384a; color: #8fc0e0; }
+.add-hero .chip.level .mi { font-size: 1.1em; }
+/* No numbers (analyzing, another language, no known words): the readout's box, with a sentence. */
+.note-text { margin: 0; font-size: 0.82rem; line-height: 1.5; color: var(--text); }
+body.dark .note-text { color: rgba(255, 255, 255, 0.88); }
+.note-text a { color: var(--accent-ink); }
+body.dark .note-text a { color: #ffc0d4; }
+.readout--wait { position: relative; }
+.wait-ghost, .where-ghost, .ghost-slot { visibility: hidden; }
+.wait-ghost { display: contents; }  /* its parts stay the readout's own flex children, gaps included */
+.where-ghost { display: inline-flex; align-items: center; min-height: 32px; }  /* the real line's link is 32px tall */
+.wait-over { position: absolute; inset: 14px; display: flex; flex-direction: column; gap: 8px; overflow: hidden; }
+.wait-line { margin: 0; font: 800 1.3rem/1.15 'Baloo 2', 'Hanken Grotesk', sans-serif; color: var(--muted); }
+body.dark .wait-line { color: rgba(255, 255, 255, 0.7); }
+.wait-bar { height: 12px; border-radius: 8px; background: var(--panel); animation: pulse 1.4s ease-in-out infinite; }
+body.dark .wait-bar { background: rgba(255, 255, 255, 0.1); }
+@media (prefers-reduced-motion: reduce) { .wait-bar { animation: none; } }
+.result-line { margin: 0; font-size: 0.8rem; color: var(--muted); }
+.result-line:empty { display: none; }
+.result-line a { color: var(--accent-ink); }
+
+/* The result's heading: focus lands here when a result renders. */
+.result-title {
+  margin: 0;
+  font: 800 1.25rem/1.3 'Baloo 2', 'Hanken Grotesk', sans-serif;
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+.result-title:focus { outline: none; }
+.result-title:focus-visible { outline: 2px solid var(--accent-ink); outline-offset: 4px; border-radius: 4px; }
+
+/* ── result actions ───────────────────────────────────────────────────── */
+.result-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.result-actions .submit-btn {
+  text-decoration: none;
+  display: inline-block;
+}
+#result { display: flex; flex-direction: column; gap: 18px; }
+#result:empty { display: none; }
+
+/* The zone stacks on its own width, not the viewport's: with the sidebar open a 640–760px window
+   leaves it ~400px, and a phone-width zone is what that needs (STYLE principle 5). */
+
+/* The batch's series strip, under the summary. Its captions at 0.7rem, as on /book's readout
+   (STYLE §3): hero.css's 0.66rem is under the 11px floor. */
+.batch-series { flex: none; max-width: none; }
+.batch-series .readout-label, .batch-series .meter-labels, .batch-series .strip-col span { font-size: 0.7rem; }
+#batch-series-slot:empty { display: none; }
+/* Across the whole card, on a plot with the band thresholds dashed in at the strip's own scale. */
+.batch-series .strip-col { max-width: none; }
+.strip-plot { position: relative; height: 104px; margin: 20px 0 22px; }
+.strip--marked .strip-bars { position: absolute; inset: 0 68px 0 0; gap: 2px; height: auto; margin: 0; z-index: 1; }
+.strip--marked .strip-col { position: relative; }
+.strip--marked .strip-col span { position: absolute; top: 100%; left: 0; right: 0; margin-top: 3px; }
+.strip-mark { position: absolute; left: 0; right: 0; bottom: calc(var(--frac) * 100%); border-top: 1px dashed var(--border); }
+.strip-mark span { position: absolute; right: 0; bottom: 2px; font: 700 0.7rem 'Space Mono', ui-monospace, monospace; color: var(--muted); }
+.strip-start { margin: 0; font-size: 0.85rem; font-weight: 700; }
+.strip-start a { color: inherit; text-decoration: underline dotted; text-underline-offset: 3px; }
+@media (max-width: 899px), (pointer: coarse) {
+  .strip-start a { display: inline-flex; align-items: center; min-height: 32px; }  /* STYLE §13 */
+}
+
+/* One coral primary per state: while the edit form is open, Save is it and Open book steps back. */
+#result.editing .result-actions .submit-btn {
+  background: none; color: var(--text); border: 2px solid var(--border); padding: 9px 20px;
+}

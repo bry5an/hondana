@@ -1,0 +1,702 @@
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with this repository.
+
+## Overview
+
+Hondana: a self-hosted Japanese EPUB + audiobook library, a FastAPI web app for browsing your own collection on the LAN (GPL-3.0-or-later). **The app is the repo** — `epublib/`, `templates/`, `static/` and `tests/` sit at the root (`cli.py` there is a shim for `epublib/cli.py`, installed as the `hondana` command). The audiobook catalog the app joins against (`data/audiobook_catalog_base.json`, `data/natively_levels.json`) is **per-machine data under the gitignored `data/`**, not part of the repo — a fresh clone starts with none of it (see "Audiobook catalog data").
+
+> **UI work: read `docs/STYLE.md` first** — tokens, type, radii, page widths, buttons, chips, dark theme. It is prescriptive; match it, and update it when you add a pattern.
+>
+> Background notes that don't fit here — measured performance and the traps in the vocab
+> data — live in `docs/dev/`.
+
+> The repo's history starts at the public release (`bry5an/hondana`); issue and PR numbers restart there. Code comments don't cite issue numbers, so explain *why* in the comment itself.
+
+## Contributing
+
+Work happens on a branch and lands on `main` through a pull request; CI (`.github/workflows/ci.yml`) runs `ruff check` and `pytest` on every PR. Never commit personal data: everything under `data/`, `config.toml`/`config.*.toml` (except `config.example.toml`), `.env`, and your own books and audiobooks are gitignored, and must stay that way. Test fixtures are synthetic or tiny stubs (`tests/fixtures/`), never real books or scraped pages.
+
+## Audiobook catalog data
+
+The repo ships **no personal data**: the audiobook catalog lives under the gitignored `data/` like every other per-machine file.
+
+- `data/audiobook_catalog_base.json` — *optional* base layer of the catalog, keyed by Audible ASIN (e.g. `"B0XXXXXXXX"`; older rows also use `kikubon N`, `audiobook.jp N`, `dwango N`). A hand-curated catalog, e.g. every audiobook an Audible account owns with its own genre/series/order (Audible's API disagrees with a curated catalog on a fair share of genres and volume numbers, so it can't simply be regenerated), and optionally `new_path`. Never modified by scripts. Absent on a fresh clone: the catalog is then just `data/audiobook_catalog_extra.json`, which the `catalog` stage fills from the `[ASIN]` in each audio file name.
+- `data/natively_levels.json` — Natively data for the catalog, keyed by the same ASIN; the **only** store of audiobook difficulty ratings. Written by the `enrich-audiobooks` stage (it replaced an older standalone scraper).
+- Both are in `data_mirror.ROOT_FILES`, so `cli.py push` backs them up. They can be rebuilt only partially (`catalog` + `enrich-audiobooks`, ~1 h, and it may not reproduce the same Natively matches).
+- `docs/` — user, operator and developer documentation (`docs/README.md` is the index: configuration, running a server, pipeline, audiobooks, audio sync, API, development); `docs/dev/` is developer notes (perf baselines, data gotchas). `README.md` is the end-user guide.
+
+Both are read through config keys (`audiobook_data`, `audiobook_natively`, default `./data/audiobook_catalog_base.json` / `./data/natively_levels.json`). A missing file is a normal empty start, not an error — so a wrong path also fails **silently** as an empty catalog: after touching config, check that `/api/audiobooks` is non-empty.
+
+### Updating Natively data
+
+```bash
+uv run python cli.py enrich-audiobooks            # new entries + old misses (resume-safe)
+uv run python cli.py enrich-audiobooks --refresh  # re-fetch every entry (~1 h)
+```
+
+It reads the catalog and writes `data/natively_levels.json`, using the same `epublib/natively.py` lookup and retry rules as the EPUB stage. A match is final (including entries without a `fetched_at`, written by an older scraper); a miss is retried after 14 days; `manual_url` entries are never touched. The file is per-machine (not tracked), so each machine runs its own, or relies on the `cli.py push` backup.
+
+Lookup details: `epublib/natively.py` uses learnnatively.com's undocumented autocomplete API (`https://learnnatively.com/api/autocomplete-api/?q=QUERY&language=jpn`), excludes manga/comic types, and falls back to a series-level search when no item matches. Ratings are scraped from Next.js SSR book pages via a regex on doubly-escaped JSON in `<script>` tags; `RATINGS_RE` in `natively.py` is the first thing to check if ratings stop populating. Some series have scores on the website but are missing or mismatched in `natively_levels.json` — run `enrich-audiobooks` (`--refresh` for a full re-fetch) if ratings look stale.
+
+Catalog row fields of interest: `series` (always populated; standalone books repeat their title), `order` (zero-padded volume, `"01"`), `my_filename`, `new_path`. `natively_levels.json` fields per entry: `natively_level` (int|null), `natively_url`, `matched_title`, `confidence` (0–1), `match_type` (`"item"`|`"series"`|null), `overall_rating`, `overall_rating_count`, `language_learning_rating`, `language_learning_rating_count`, plus `fetched_at` and `query` (`{series, order}`) on entries written by `enrich-audiobooks` (older entries lack both).
+
+Data flow: the catalog (base file + `audiobook_catalog_extra.json`) + `natively_levels.json` → `epublib/audiobook_scanner.py` at `build_index()` time → `audiobook_library.json`.
+
+## How to run
+
+```bash
+uv run cli.py serve                   # or `uv run hondana serve`; reads config.toml (see "Config selection")
+uv run cli.py serve --reload          # reloads on Python edits
+```
+
+The server hot-reads all JSON indices on every request, so pipeline changes are visible immediately without restart.
+
+## Key files
+
+| Path | Role |
+|---|---|
+| `epublib/server.py` | FastAPI app — all routes and request handlers. Pages are a `PAGES` route table (`{path: template}`) registered in a loop; `_render()` caches each expanded page and re-expands only when it or a partial changes on disk. Edit-mode override endpoints (`/genre`, `/title`, `/series`) share `_set_override` + `_save_override` + `_series_value` with `/details` |
+| `epublib/schemas.py` | Pydantic request/response models for the JSON API, backing the `/docs` Swagger UI |
+| `epublib/config.py` | Config dataclass; resolves all paths to absolutes |
+| `epublib/scanner.py` | Walk `epub_dir`, extract OPF metadata + covers → `epub_library.json`. `SCHEMA_VERSION` (now 4) forces unchanged files to be re-read when the entry shape grows |
+| `epublib/epub_meta.py` | Stdlib OPF parser → `EpubMeta`: title/author/language/identifiers, **plus** `title_reading` / `author_reading` (the `file-as` sort key — EPUB2 `opf:file-as` or EPUB3 `refines` — kept only when it is pure kana, NFKC-normalized), `author_file_as` (raw; the `Last, First` form for Western names, calibre-mangled `玲子, 廣嶋` for Japanese ones), `publisher`, `pub_date` (`YYYY[-MM[-DD]]`), `description` (plain text, ≤5000 chars), and the series with its volume number (`calibre:series` + `series_index`, else the first EPUB3 `belongs-to-collection` of type series + `group-position`; `series_index` is a build-ready order: `"01"`, `"2.5"`) |
+| `epublib/incoming.py` | Files an uploaded/downloaded EPUB (`store_incoming_epub`, shared by `/api/upload` and `/api/acquire`): reads OPF metadata from the bytes, picks `Japanese/`/`English/`/root via `lang.detect`, sanitizes + de-collides the name, and raises `DuplicateEpub` (identical `sha256`, shared ISBN/ASIN, or same cleaned title + author) unless `force` |
+| `epublib/pipeline.py` | **The one definition of the pipeline**: `STAGES` (ordered `Stage(id, label, help, description, run)`, plus `group` — the `/admin` section: index/audiobooks/finish/maintenance — and `chips`, the flags `/admin` shows for stages that call Natively/Audible/Google Books or write a tracked repo file), `ALL`, `run_all()`, and the per-book `BOOK_CHAIN` / `run_book_chain()`. `cli.py`'s subcommands and `/admin`'s `ADMIN_STAGES` are generated from it — **add or reorder a stage here and nowhere else** |
+| `epublib/book_jobs.py` | Queue + worker for the per-book chain (`pipeline.run_book_chain`: `analyze → enrich → pair → xref_one → build`), one worker under `_index_lock`; state polled via `GET /api/books/{id}/status` |
+| `epublib/rekey.py` | Carry curated state across a `book_id` change: `match_moves()` pairs vanished with newly added scan entries, `rekey_book()` moves the state, `recover_orphans()` backs `cli.py recover-moves` |
+| `epublib/purge.py` | `purge_book()` — remove everything keyed by a `book_id`. Derived data always; curated state (read status, overrides, the hand-set cover image) only with `curated=True` (explicit delete), because a vanished file may just be a rename (`rekey.py` carries it over). Leaves `pairing_overrides.json` alone (stable-key-keyed) |
+| `epublib/orphans.py` | `cli.py gc [--apply]`: finds data keyed by a `book_id` no longer in `epub_library.json` — the stores `purge_book` clears plus `covers/`, `covers/thumbs/`, `covers/custom/`, `wordlists/`, `sentences/`, `annotations/` and every profile's `known_stats`/`read_books` — for ids orphaned by versions that didn't purge or rekey. Runs `rekey.recover_orphans` first (so this is **not** a pure dry run: recovered moves are written either way), then prints counts per store and the ids (with a title where a title override or Natively match survives). `--apply` removes them via `purge_book(curated=True)` + the orphan's `covers/{id}.*` and runs `known.recompute_all`. Refuses an empty/missing library index (everything would look orphaned). CLI-only; not wired into `/admin`, so it takes no `_index_lock` — don't run it while a pipeline stage is running |
+| `epublib/custom_cover.py` | Hand-set covers: `store()` validates an upload with Pillow (JPEG/PNG/WebP/GIF, ≤10 MB, extension from the bytes) and writes `data/covers/custom/{id}{ext}` + a `cover_overrides.json` flag; `clear()` drops both. `build()` lays it over the EPUB's own cover (kept in `raw_cover`) and sets `cover_v`. The image sits in a subdirectory so the scanner's `covers/{id}.*` sweep can't reach it, and the EPUB's cover stays on disk — reset needs no re-extraction |
+| `epublib/epub_text.py` | Spine-ordered text extraction (ruby-aware) + sentence/char counting rules; `spine_items()` gives each spine document's index (counted like foliate-js's sections) for the reader pack; `dom_text()` gives one document's text exactly as the phone's DOM walk sees it (UTF-16 offset and FNV-1a helpers included) |
+| `epublib/analyze.py` | Tokenize JP books (fugashi/UniDic) → jpdb-style stats in `vocab_epub.json` + `wordlists/` + `sentences/`. `iter_tokens()` (tokens with char offsets) and `word_def()` (the orth/lemma/free/reading/goshu a token stands for) are the one definition of a word key, shared with the reader pack |
+| `epublib/annotate.py` | Reader packs: `build_pack(cfg, book)` turns one JP book into the per-document token offsets (UTF-16, into `epub_text.dom_text`), interned words with orth/lemma/readings/ruby, and sentence spans the iOS reader needs; `ensure_pack()` caches it at `data/annotations/{id}.json.gz`; `NoPack(reason)` for drm / not_ja / no_text. See "Reader API" below |
+| `epublib/reader.py` | Per-profile state for the iOS reader: `snapshot(cfg)` is the effective known set `GET /api/reader/vocab` returns (`known.load_sets` + learning + `known.exposure_counts`), `etag(cfg)` its tag from the `(mtime_ns, size)` of `known_words.json`, `read_books.json` and `learning.json`; `load_learning` / `load_progress` / `load_audio_progress` read `learning.json`, `reader_progress.json` and `audio_progress.json`; `parse_events`, `apply_status`, `unsettable`, `record_status`, `append_lookups`, `merge_progress` and `merge_audio_progress` are `POST /api/reader/events`. See "Reader API" below |
+| `epublib/align.py` | Audio↔text sync: `parse_srt`, the matcher `match_cues(sentences, cues)` (bigram-vote a cue's position in the book's base text, verify with difflib, time linear in the text across a cue), and storage in `data/alignments/` (`ingest`/`ingest_parts`, `ensure`, `state`, `delete`, `work_dir`); `book_text(cfg, book)` is the sentences one per line, the one text SubPlz is given whether it runs on the server (`align_jobs`) or elsewhere (`GET …/alignment/text`). The SRT comes from SubPlz/Whisper, uploaded, made by `align_jobs`, or made on another machine by `align_remote`. See "Reader API" below |
+| `epublib/align_jobs.py` | Runs SubPlz on request: `AlignJobs` is its own queue + worker (never `_index_lock`: hours of Whisper), `command_problem(cfg)` says why `subplz_cmd` can't run. Per audio file it runs the `[alignment] subplz_cmd` template (`{audio}`, `{text}`, `{out}`; no shell) against `book.txt` (`align.book_text`) in `data/alignments/.work/{book_id}/`, then hands every SRT to `align.ingest_parts`. The per-file step is module-level (`transcribe`, `read_srt`, `out_dir`, `stop_process`) so `align_remote` runs the very same code. See "Reader API" below |
+| `epublib/align_remote.py` | `cli.py align-remote`, the client half: borrows another machine's GPU for a book on the server. `Server` (a `requests` wrapper: `books`, `status`, `text`, resumable `download` by `Range`, one-request `upload`), `find_book`, `make_plan`/`Plan`, `candidates` (`--missing`) and `align_book`, which runs fetch text → download audio → `align_jobs.transcribe` per file → upload. Work dir `~/.cache/hondana/align/<host>/<book_id>/`. See "Reader API" below |
+| `epublib/discovery.py` | Bonjour advert of the server for the iOS app: `Advertiser` (zeroconf `AsyncZeroconf`, started/stopped in `server._lifespan`, never fatal) registers `_hondana._tcp` on `plan(cfg).port` with TXT `scheme`/`path`/`name`/`v` (+ `host` = `[discovery] advertise_host`: the one Host name a proxy answers to, since an nginx with a `server_name` can close the connection on any other; unset = omitted). `local_ipv4()` skips docker/bridge/veth interfaces. `plan()` is None when `[discovery] enabled = false`, or when `host` is loopback and no `advertise_port` is set (behind nginx, set `advertise_port = 80`). Also `connect_url` (the request's `Host`; a loopback host is swapped for the LAN IPv4), `connect_link` (`hondana://connect?server=&profile=`) and `qr_svg` (segno) behind `GET /api/connect[/qr.svg]`, which `/profile`'s "Connect Hondana for iPhone" card shows |
+| `epublib/setup_status.py` | The first-run checklist behind `GET /api/setup`: `steps(cfg, library)` / `summary()`, each step `{id, label, required, done, detail, href, link}`. `/`'s **Getting started** card (`#setup` in `index.html`, `loadSetup()` in `app.js`, `.setup-card` in `app.css`) draws it above the grid while a required step is open, and hides itself for good (`localStorage` `getting-started-hidden`) when the user closes it or every required step is done |
+| `epublib/dicts.py` | The user's own Yomitan zips for the iOS reader: `manifest(cfg)` lists the readable zips in `cfg.dicts_dir` with their `index.json` fields, size, sha256 and inferred `kind`, cached by `(mtime_ns, size)`; `find(cfg, file)` is the download whitelist. See "Reader API" below |
+| `epublib/known.py` | Known-words list parsing/storage; derive per-book Known % and reading load → `known_stats.json`. **Snapshots:** `save(mode="replace")` (not seed steps) and `clear()` first copy the list to `users/<slug>/history/<timestamp>-<reason>.json` (words, marked, source only; newest 10 kept); `list_snapshots()` / `restore()` back `/known`'s "Restore an earlier list" card, and a restore snapshots what it replaces. **`not_words`:** names and tokenizer fragments set aside from a study list (`skip()`/`unskip()`), stored apart from `words` and `marked` (so they never inflate the known count) and unioned into `load_sets()`' orth set (orth keys only, never lemma) — so they are free in the reading load, coverage, `study_path` and `/known`'s review list, and survive re-imports and snapshot/restore. `history/` is a subdirectory, so `data_mirror` (files only) doesn't push it |
+| `epublib/profiles.py` | Reader profile registry + per-device active-profile resolution (see "Reader profiles" below) |
+| `epublib/study.py` | Per-book study path: top unknown words with example sentences + the "learn N words" curve |
+| `epublib/corpus.py` | Library-wide unknown words ranked by how many books use them (the `/known` review list) |
+| `epublib/enrich.py` | Fetch Natively levels for JP books → `natively_epub.json`. Looks up with the **derived** `series_name` + `series_order` (not the raw calibre series), stamps each result with `fetched_at` + the `query` it used, and re-fetches: a miss older than `RETRY_DAYS` (14) or whose series changed since, and a series-level match cached before its volume number was known (resolves to the volume's own page). A retry never replaces a match with a miss; `manual_url` entries are never touched (not even by `--refresh`); entries for books no longer in the library are dropped. The per-book add chain passes `retry=False`, so an upload only ever looks up books with no result. `enrich-unmatched` (admin: "Retry unmatched Natively lookups") forces every miss now — a standalone `Stage(in_chain=False)`, not part of `all`. **`enrich_audiobooks()`** (stage `enrich-audiobooks`, also `in_chain=False`) runs the same lookup over the Audible catalog (`audiobook_data`) into `data/natively_levels.json` (`audiobook_natively`), through the shared `_fetch` loop: new entries and misses older than 14 days are looked up, a match is final (old-scraper entries have no `fetched_at`, `wants_lookup(legacy_matches_final=True)`), `--refresh` re-fetches all. It writes a per-machine file under `data/` (mirrored by `data_mirror`) |
+| `epublib/pairing.py` | Match EN/JP editions → `pairings.json` |
+| `epublib/data_mirror.py` | Push the hand-curated `data/` files (profiles, known words, read books, pairing/series/genre/title/cover overrides plus the `covers/custom/` images, audiobook prune list) to a private git repo (`cli.py push`; off unless `[data_mirror] publish = true`, meant for a timer — see `docs/running-a-server.md#backups`) |
+| `epublib/audiobook_catalog.py` | **The one way to read the audiobook catalog**: `load(cfg)` / `cached(cfg)` return the optional base file (`audiobook_data`, a hand-curated catalog) with `data/audiobook_catalog_extra.json` laid over it per field — every reader (`build`, `audiobook_scanner`, `audiobook_xref`, `enrich`, `consolidate`, `search_index`, the server) goes through it, never `load_json(cfg.audiobook_data)`. `fetch_missing()` (stage `catalog`) finds audiobook files whose `[ASIN]` is in no catalog, pulls each from Audible's public catalog API (no login) and writes a row in the base file's shape (`series` falls back to the title, `order` is the first number of the API's `sequence` zero-padded, `genre` is Audible's category mapped onto the existing words — ライトノベル, ミステリー・サスペンス, SF・ファンタジー, ホラー, 児童書, 時代小説, 文芸作品 — or kept as Audible names it), then re-indexes. An ASIN Audible has no book for (404, or a runtime-less series container) is recorded with `unavailable_at` and asked again after 14 days; request errors record nothing and stop the run after 3 in a row. Makes no request when every ASIN on disk is known |
+| `epublib/epub_catalog.py` | Genre/description for EPUBs by ISBN: for books with an `identifiers.isbn` that still lack a description or genre after the OPF and any linked audiobook, `fetch_missing()` (stage `epub-catalog`, last in `all` and in the per-book chain) asks the Google Books API and keeps `{description, genre, categories, fetched_at}` per ISBN in `data/epub_catalog_extra.json` (generated, per-machine; survives a rename). Google's English categories map onto the catalog's genre words (`genre_from_categories`; non-fiction → ノンフィクション; comics → none). **Needs `GOOGLE_BOOKS_API_KEY` in the repo-root `.env`** — without it the stage does nothing; keyless access shares an exhausted quota. A found ISBN is never re-asked; a miss is retried after 14 days; request errors record nothing and stop the run after 3. Rebuilds only when something was found |
+| `epublib/audiobook_scanner.py` | Scan audiobook dirs → `audiobook_files.json`; join with catalog → `audiobook_library.json` |
+| `epublib/audiobook_xref.py` | Cross-ref audiobooks to EPUBs → `audiobook_links.json`. Volume-aware (digits kept; an EPUB's volume must match the catalog volume; `第N部「…N」` titles match on (part, volume-in-part) with roman numerals read), author-gated, then `audiobook_link_overrides.json` applied last. `xref_one(cfg, book_id)` re-links a single book (~20 ms) |
+| `epublib/build.py` | Join all caches into the denormalized `epub_library.json` the UI reads; also rebuilds the search index |
+| `epublib/search_index.py` | Local SQLite FTS5 (trigram) search index backing `/api/search`. Every table has a computed **`readings`** column: the hiragana reading, romaji (spaced and run together) and space-stripped form of the Japanese title/author/series (pykakasi via `romaji.reading_forms`), plus the EPUB's own `title_reading`/`author_reading` normalized to hiragana — so `murakami`, `sumino` (which also finds the English edition's `Yoru Sumino`), `かぜがつよく` and `カゼガツヨク` all find the Japanese book. A katakana query is also tried as hiragana (`query_variants`); a query under 3 characters (too short for trigrams) additionally scans `readings` with `LIKE` (`readings_like`). Bump `READINGS_VERSION` when how readings are made changes — it is folded into each table's signature so the tables rebuild. A cold rebuild of all three tables takes ~1.5 s |
+| `epublib/textnorm.py` | Text normalization shared across stages (the title normalizers belong here too). **Title normalizers**, one named variant per job — add a fix to the right one, not a copy: `peel_title` (trailing brackets + English translation; what series derivation reads, so it never shifts series names), `display_title` (what a book is shown as; idempotent), `natively_query` (name-only form Natively is searched with), `match_key` (EPUB↔audiobook comparison, used by `audiobook_xref`), `compact_key` (whitespace-insensitive equality, the `/add` duplicate check), `file_title_key` (audiobook folder/file ↔ catalog, used by `consolidate`). `natively_query` is also what `enrich-audiobooks` searches with (the old scraper's own `clean_title` went with it). **Descriptions:** `plain_text()` turns an HTML description (the Audible catalog's `<br />`, Google Books' `<p>`) into plain text with a newline per break — used by `build`'s audiobook fallback and `epub_catalog`. **Authors:** `clean_author()` is the **display** form — drops OPF list punctuation (`James Nestor;`) and flips a written-out Latin `Last, First`; `author_key()` is the **comparison** key — NFKC + case-fold, Japanese names lose all separators (`廣嶋 玲子` = `廣嶋玲子`), everything else becomes its sorted word set (`Bill Bryson` = `Bryson Bill` = `Bryson, Bill`; `J.K. Rowling` = `Rowling, J.K.`). Never display the key |
+| `epublib/index_store.py` | `load_json` / `save_json` — atomic file writes |
+| `epublib/cli.py` | CLI (`hondana`, or `uv run cli.py` via the root shim): one subcommand per `pipeline.STAGES` entry (+ `all`), plus `push`, `seed-known`, `recover-moves`, `gc`, `consolidate`, `align-remote`, `serve` (`--help` lists them) |
+| `templates/` | Jinja-free HTML templates. `server._render()` expands `<!-- include: name attr=value … -->` from `templates/partials/` (values with spaces are quoted: `title="Read Next"`; partials read attributes as `{name}`, HTML-escaped, and may include other partials). Every page is `head` (meta, fonts, `app.css`, `ui.js`, favicon; `title=`) + its own page-CSS `<link>`s, then `shell` (inline theme init, the `sidebar`, overlay, opens `.main-col`; `active=books|audiobooks|next|pair|add|known|admin|none`), then `<header><div class="header-row">` with `header` (nav toggle + `<h1>`; `title=`, optional `h1id=page-title`) plus whatever controls the page adds. **A new page is those three includes plus one `PAGES` entry in `server.py` — never copy the shell, and never put a `<style>` in a template.** |
+| `static/` | JS + CSS; no build step. **Cached for good:** `_render()` rewrites every `src=`/`href="/static/…"` in a page to `…?v=<mtime_ns>` (the asset is a dep of the page's render cache, so an edit bumps the version), and `_CachedStatic` serves a `?v=` request `immutable, max-age=1y`; an unversioned request (the font `app.css` pulls via `url()`) is `no-cache` (revalidates). Reference assets from templates as plain `/static/x` — never hand-write a version. Page CSS lives in `static/<page>.css` (cacheable, linked after `app.css`): `hero.css` is the night hero shared by `/next`, `/series` and `/book` (readout panel, tile colours, the verdict line and the load bar included); everything else in a page file is that page's own, even where a class name (`.book-hero`, `.status-ok`) also appears in another page with different rules. **Rule order is load-bearing:** a shared file loads before the page file, so a media-query rule must live in the same file as the base rule it overrides (this is why the hero's phone rules are in `next.css`/`series.css`, not `hero.css`; `/next`'s are container queries on `.top-row`). Fonts come from `<link rel="preconnect">` + `<link>` in `partials/head.html`, not a CSS `@import` (which is fetched only after `app.css`). Dark mode follows `prefers-color-scheme` until the user picks a theme (`partials/shell.html`, `nav.js`). `ui.js` is loaded in every page's `<head>` and is **the one home for helpers shared across pages** (plain globals, no build step — see its header comment for the list): `esc()` (HTML escaping, null-safe), `byVolume(orderOf)` / `orderCmp()` (**the** volume sort: numeric-aware so `100` follows `10`, blank orders last, title as tiebreak — never hand-roll `localeCompare(… || "99")`), `postJson()` (POST JSON, throws the server's `detail`), `fmt`/`kFmt`, `initial`, `langAttr(text)` (` lang="ja"` for Japanese text — put it on titles, authors, series and sentences), `icon(name)` (Material Symbols Rounded, self-hosted subset `material-symbols.woff2` — to add an icon, re-fetch the subset from Google Fonts with the new `icon_names`), the download buttons `dlEpub()` / `dlAudio()` styled by `.dl-btn` in `app.css` (`tone: "quiet"` for rows repeated down a list, `label` = the book title for the accessible name), and `dlTrack()` for one MP3 track link, `coverUrl(b)` (a book's `/covers/` URL, cache-busted — never hand-build one), `STRAIN_GRADES`/`strainBucket()` (the one place the strain wording and cut points live: seven grades on four colours, cut at 10/18/25/33/40/48) and `STRAIN_BANDS` (the four colour bands, 18/33/48, derived from the grades; Read Next's queue bands follow them), `feelSentence(k)` (the verdict's sentence: what reading the book feels like; `/book`, `/next`), `loadBarHtml(k, opts)` (the load bar: sentences with no / one / two+ unknown words; `/book`, `/next`), the Natively level helpers (`levelBand`/`levelUnconfirmed`/`levelTitle`/`levelSticker`), the book accessors (`vocabOf`, `hardPct`, `knownPct`, `isRead`, …), `statusHtml()`, `loadActiveProfile()`, and the interaction components (below): `confirmDialog()`, `promptDialog()`, `toast()`, `manageMode()`, `moreBtn()`/`openMenu()`. Don't keep a private copy in a page script, and don't redeclare these names with `const`/`let` (a SyntaxError). Don't hand-roll download links or use emoji icons. |
+| `config.example.toml` | Checked-in template; copy to `config.toml` to start. Every other `config*.toml` is gitignored |
+| `data/` | All generated JSON indices + extracted cover images (not committed) |
+
+## Config selection
+
+Priority order for the active config file:
+
+1. `EPUB_LIBRARY_CONFIG` env var (explicit path)
+2. `config.<EPUB_LIBRARY_ENV>.toml` (env defaults to `dev`), if that file exists
+3. `config.toml`
+
+Key config fields: `epub_dir`, `data_dir`, `audiobook_dirs` (list; first entry is the canonical root for consolidation), `host`, `port`, plus `[natively]`, `[pairing]`, `[xref]` threshold sections.
+
+## Data files (under `data/`)
+
+| File | Written by | Content |
+|---|---|---|
+| `epub_library.json` | `scanner.scan()` then `build.build()` | Master EPUB index keyed by `book_id` |
+| `vocab_epub.json` | `analyze.analyze()` | jpdb-style vocab/difficulty stats keyed by `book_id` (gitignored — cheap to rebuild) |
+| `wordlists/{book_id}.json` | `analyze.analyze()` | Per-book orthBase→count map for Known % recompute (gitignored — cheap to rebuild) |
+| `sentences/{book_id}.json.gz` | `analyze.analyze()` | Per-sentence word-id index for reading-load recompute (~4 MB, gitignored) |
+| `annotations/{book_id}.json.gz` | `annotate.ensure_pack()` (first request or the `annotate` stage) | Reader pack of one JP book, ~0.2–1.8 MB gzipped (gitignored, rebuildable; removed with the book by `purge_book`, `gc` and the analyze stage) |
+| `alignments/{book_id}.srt` (mp3 folder: `{book_id}.{NNN}.srt`, by position in the audiobook's file list) | `POST /api/books/{id}/alignment` (`align.ingest`) | The raw SRT of the book's linked audiobook, hand-supplied (a Whisper run elsewhere). Follows the book across a rename (`rekey`), dropped only on an explicit delete (`purge curated=True`), mirrored by `cli.py push` |
+| `alignments/{book_id}.json` | `align` (ingest, or a GET after the book changed) | The derived sentence→time map; rebuilt from the SRT, so removed with the book on every purge and never mirrored |
+| `dicts/*.zip` | Hand-supplied (`dicts_dir` in the config, default `data/dicts/`) | The user's own Yomitan dictionary zips (Jitendex/JMdict, monolingual, Kanjium pitch, frequency), hosted to the iOS reader by `GET /api/reader/dicts`. Personal and often not redistributable: gitignored (everything under `data/` is) and not mirrored by `cli.py push`, so keep the originals elsewhere |
+| `profiles.json` | `profiles.py` (`POST /api/profiles`, `/api/profiles/active`) | Reader registry: `{active, profiles: [{slug, name, language}]}`; per-profile files live in `users/<slug>/`; backed up by `cli.py push` |
+| `users/<slug>/known_words.json` | `/api/known-words` | The profile's known-words list + normalized orth/lemma keys + the hand-`marked` subset + `not_words`, the names/fragments set aside as "not a word" (per profile — see "Reader profiles"; backed up by `cli.py push`) |
+| `users/<slug>/read_books.json` | `/api/books/{id}/read` | Books this profile marked read; source of the exposed vocabulary (gitignored, hand-supplied, backed up by `cli.py push`) |
+| `users/<slug>/learning.json` | `reader.py` (`POST /api/reader/events`) | `{schema, words: {orth: {lemma, reading, book_id, sentence, added_at}}}`: words the profile is learning. They still count as unknown everywhere. Hand-curated, so mirrored by `cli.py push` with the rest of the user folder |
+| `users/<slug>/lookups.jsonl` | `reader.py` | Append-only log of reader lookups, `{id, ts, orth, lemma, book_id, sentence}`, de-duplicated by `id`. Mirrored like `learning.json` |
+| `users/<slug>/audio_progress.json` | `reader.py` | `{ab_id: {track, seconds, updated_at}}`: where the listener is in each audiobook (`track` is the file of an mp3 folder, 0 for an m4b; `seconds` is into that file). Keyed by `ab_id`, the only identity an audiobook has. Mirrored like `reader_progress.json` |
+| `users/<slug>/reader_progress.json` | `reader.py` | `{stable_key: {book_id, sha256, cfi, fraction, updated_at}}`, keyed by stable key because `book_id` changes on rename and differs between machines. Mirrored like `learning.json` |
+| `users/<slug>/known_stats.json` | `known.recompute()` | Derived per-book Known % + reading load (gitignored — cheap to rebuild) |
+| `natively_epub.json` | `enrich.enrich()` | Natively levels keyed by `book_id` |
+| `pairings.json` | `pairing.pair()` | EN/JP pairs keyed by `pair_id` |
+| `pairing_overrides.json` | `/api/pairing/link|unlink` | Manual pairing overrides (gitignored, hand-supplied, backed up by `cli.py push`) |
+| `series_overrides.json` | hand-edited + `/api/books/{id}/series`, `/api/books/series`, `/api/series/rename` | Manual `book_id` → `{series_name, series_order}` fix (a null name = pinned standalone, which also blocks the title/pair inheritance passes), for volumes none of `build.py`'s heuristics catch (e.g. each volume's title is an unrelated subtitle); read by `build.build()`; backed up by `cli.py push` |
+| `genre_overrides.json` | `/api/books/{id}/genre`, `/api/books/genre` | Hand-picked `book_id` → genre, from the `/add` page's selector; read by `build.build()`; backed up by `cli.py push` |
+| `author_overrides.json` | `/api/books/{id}/details` | Hand-corrected `book_id` → author (raw OPF authors like `Bryson Bill` / `James Nestor;`); applied by `build.build()`, which keeps the file's own value in `raw_author`; follows a rename (`rekey`), dropped on delete (`purge`); backed up by `cli.py push` |
+| `language_overrides.json` | `/api/books/{id}/details` | Hand-corrected `book_id` → `ja`/`en`/`other`, for books whose filename/OPF language misleads `lang.detect`; applied by `build.build()` (`lang_source` becomes `override`, the file's values stay in `raw_language`/`raw_lang_source`). A change drops the book's derived data (`purge_book`, curated state kept), recomputes every profile, and queues the per-book pipeline; analyze stamps `language` on its entry so a changed language is never skipped as unchanged. Same rekey/purge/backup as above |
+| `title_overrides.json` | `/api/books/{id}/title` | Hand-typed `book_id` → title, from Edit mode's edit action; read by `build.build()`; backed up by `cli.py push` |
+| `audiobook_link_overrides.json` | `/api/books/{id}/audiobook-link` | Hand-corrected EPUB↔audiobook links: `{book_id: audible_isbn \| null}` (null = "no audiobook"); applied last by `xref()`; follows the book across a rename (`rekey`) and is dropped on delete (`purge`); backed up by `cli.py push` |
+| `cover_overrides.json` | `/api/books/{id}/cover` | Books with a hand-set cover: `{book_id: {"ext": ".png"}}`, image in `covers/custom/{book_id}{ext}`; applied by `build.build()` (`cover` becomes the custom path, the scanner's own stays in `raw_cover`, `cover_v` = image mtime in ms for cache-busting). Survives rescans; follows a rename (`rekey` moves flag + image), dropped on delete (`purge`); backed up by `cli.py push` (flag *and* images) |
+| `audiobook_hidden.json` | `/api/audiobooks/hide` | `{"ab_ids": [...]}` — manually pruned catalog entries; read by `audiobook_scanner.build_index()`; backed up by `cli.py push` |
+| `audiobook_catalog_extra.json` | `audiobook_catalog.fetch_missing()` | Catalog rows pulled by ASIN for audiobooks the base file doesn't have (+ `unavailable_at` stubs for ASINs Audible has no book for). Generated, per-machine, rebuildable by re-running `catalog` — no hand-editing, not mirrored |
+| `epub_catalog_extra.json` | `epub_catalog.fetch_missing()` | EPUB description/genre looked up by ISBN (Google Books), keyed by ISBN. Generated, per-machine, rebuildable by re-running `epub-catalog` |
+| `audiobook_files.json` | `audiobook_scanner.scan()` | Raw disk-scan results keyed by `ab_id` |
+| `audiobook_library.json` | `audiobook_scanner.build_index()` | Disk scan joined with the catalog |
+| `audiobook_links.json` | `audiobook_xref.xref()` | Per-EPUB audiobook cross-references |
+| `covers/{book_id}.jpg` | `scanner.scan()` | Extracted cover images |
+| `covers/custom/{book_id}.*` | `/api/books/{id}/cover` | Hand-uploaded covers; never touched by the scanner |
+| `logs/` | Admin panel stage runs | Per-run `.log` files |
+
+`book_id` = `sha1("{rel_path}\0{filesize}").hexdigest()[:16]` (from `scanner.book_id_for()`). It changes when a file is renamed, moved or replaced, so `scan` carries curated state (read status in every profile, title/series/genre overrides, the Natively match) from a vanished id to the matching new one (`rekey.match_moves` + `rekey_book`: same path, asin/isbn, file name+size, OPF identifier, then title+author — only when exactly one old and one new entry share the signal). `cli.py recover-moves` is the one-off for ids already orphaned by a folder move (it can't recover a rename: the old metadata is gone).
+
+## Pipeline
+
+Run stages in order; each stage reads earlier stages' output files. The order lives in `epublib/pipeline.py` (`STAGES`); `cli.py`, `/admin` and this list are all downstream of it:
+
+```
+scan → analyze → enrich → pair → audio-scan → catalog → xref → build → epub-catalog
+```
+
+- **scan**: walk `epub_dir`, update `epub_library.json`. A rescanned entry is written from scratch, so everything `build` derives (series, cleaned title, genre, pair, vocab) is missing until `build` runs — which is why the admin `scan` stage and `cli.py scan` run `build` right after (upload/acquire do too). On the server, a **`/admin` scan** also queues the per-book chain for every ja/en book with no `vocab_epub.json` entry at all (`pipeline.unanalyzed_ids`), so hand-copied or synced files get analyzed without anyone pressing Analyze now; `no_text`/`error` entries count as analyzed and are not re-queued (retry from the book page). CLI `scan` and `all` don't (no server worker; `all` analyzes anyway)
+- **analyze**: extract + tokenize each JP EPUB's full text, write `vocab_epub.json` + `wordlists/`; resume-safe (skips unchanged mtime+filesize at current `SCHEMA_VERSION`); `--refresh` forces re-analysis
+- **annotate** (standalone, `in_chain=False`, /admin "maintenance"): pre-build every JP book's reader pack in `data/annotations/` (about 1–2 s a book; `--refresh` rebuilds all). Optional: a pack is otherwise built on first request
+- **enrich**: fetch Natively for JP entries (new books, plus aged/changed misses — see `enrich.py`), write `natively_epub.json`
+- **pair**: match EN/JP editions, write `pairings.json`
+- **audio-scan**: scan `audiobook_dirs`, write `audiobook_files.json` + `audiobook_library.json`
+- **catalog**: pull metadata by ASIN for audiobook files the catalog doesn't know (new purchases), then re-index; no network when nothing is missing (`audiobook_catalog.py`)
+- **xref**: link audiobooks to EPUBs, write `audiobook_links.json`
+- **build**: join all caches into the denormalized `epub_library.json`; also derives `series_name`/`series_order`/`series_source` per book (OPF series — calibre or EPUB3 collection, with the OPF's own volume number as the order → linked audiobook catalog → title volume-marker regex → pair partner), cleans the displayed `title` (strips publisher/imprint parentheticals, 【edition】 markers, and appended English translations — or applies a hand-typed override), and attaches `vocab` + `known` + `genre`; `author` is shown cleaned (`raw_author` keeps the file's value, an `author_overrides` entry is shown as typed) and every book gets `author_key` — **group, sort and compare books by author on `author_key`** (the `/` author sort, the book page's "all volumes" table, the `/add` duplicate check), via `authorKey(b)` in `ui.js`; and every book gets `title_sort` / `series_sort` (`_sort_readings`): hiragana keys from `romaji.sort_reading` — the OPF's own `title_reading` when it has one, else pykakasi's guess; a series borrows volume 1's reading when that title starts with the series name — so **title and series order (cards and table, `/` and `/audiobooks`) goes through `readingCmp(a.sortKey, b.sortKey)` in `ui.js`, never `localeCompare`** (kanji collate by code point). Audiobook rows carry `series_reading` and `author_reading` (`audiobook_scanner.build_index`; `/admin`'s prune list sorts by the latter, falling back to the plain text until a reindex adds it). Latin and digits sort ahead of kana; leading brackets are ignored
+
+- **epub-catalog**: look up genre/description by ISBN for EPUBs still missing them, then rebuild if anything was found (`epub_catalog.py`; needs `GOOGLE_BOOKS_API_KEY`)
+
+After any write operation (e.g. delete, pairing override), call `build.build(cfg)` at minimum to regenerate the combined index. Full delete of an audiobook requires: `audiobook_scanner.build_index()` → `audiobook_xref.xref()` → `build.build()`.
+
+There used to be a `push` stage mirroring every index into a Supabase Postgres database (durability backup + PGroonga full-text search backing `/api/search`). It was removed 2026-07-21 — PGroonga leaked disk on every index rebuild in a way that couldn't be reclaimed by `REINDEX`, `DROP EXTENSION ... CASCADE`, or even a full project restart. See `docs/dev/05-gotchas.md`.
+
+`push` now means something narrower: `epublib/data_mirror.py` copies the hand-curated `data/` files that no pipeline stage can rebuild — root `profiles.json`, `pairing_overrides.json`, `series_overrides.json`, `genre_overrides.json`, `title_overrides.json`, `author_overrides.json`, `language_overrides.json`, `audiobook_link_overrides.json`, `audiobook_hidden.json`, `audiobook_catalog_base.json`, `natively_levels.json`, plus **every file** in each `data/users/<slug>/` except the derived `known_stats.json` (`USER_DERIVED`) — so a new profile or new per-user file is covered automatically — into a private git repo and commits+pushes. Off unless `[data_mirror] publish = true` (and `path` is set); meant for a timer or cron job rather than part of `all` — see `docs/running-a-server.md#backups`.
+
+`/api/search` is now backed by a local SQLite FTS5 index (`epublib/search_index.py`, `data/search.sqlite3`) instead — no server process, no external DB, no leak risk. `build` re-derives it on every call, but per table: each of the three tables (`catalog`/`audiobooks`/`epub`) is only actually dropped and re-tokenized when its source file's `(mtime_ns, size)` changed since the last build (tracked in a `meta` table inside the index); an unchanged table is carried forward via sqlite's `backup()` raw page copy instead of a row-by-row rebuild. `catalog`'s sources (the base catalog and the extras) change rarely, so in steady state it's free after the first build — only `epub` (89 rows) normally pays the cost, since `epub_library.json` is rewritten on every `build.build()` regardless of content. It uses FTS5's `trigram` tokenizer, which indexes overlapping 3-character runs rather than dictionary words — the same word-boundary-free approach PGroonga used, so Japanese (which has no word boundaries) still works without a tokenizer/dictionary. The one gotcha: trigram queries need 3+ characters to match anything, so `/api/search` special-cases anything shorter straight to the substring fallback (see below) rather than reporting a false empty result.
+
+## API routes
+
+Interactive Swagger UI is live at `/docs` (ReDoc at `/redoc`), generated from
+`epublib/schemas.py`'s Pydantic request/response models. Coverage is deliberate,
+not total: request bodies are fully typed, but responses built from the denormalized
+book/audiobook/vocab/known-stats joins (`/api/books`, `/api/books/{id}`,
+`/api/audiobooks`, etc.) are left as generic JSON — those shapes gain fields over
+time (see "Pipeline" above), and a strict `response_model` would silently drop
+whatever isn't declared. The list below stays the source of truth for those.
+
+### Pages
+- `GET /` — EPUB library, grouped into uniform series/book cards (+ sortable table view)
+- `GET /next` — Read Next: theme-following "night hero" top pick (design 5e: a reading-load readout — strain verdict in words + load bar), two runners-up below it, the ranked queue from #4 in strain bands
+- `GET /book/{book_id}` — Per-book detail: reading load, vocab stats, study path, download, series comparison
+- `GET /series?name=…` — Series detail: volume list with per-volume stats + all EPUB/audiobook downloads; Edit mode edits the series as a whole (see "Edit mode")
+- `GET /audiobooks` — Audiobook collection grouped by series
+- `GET /audiobook-series?name=…&author=…` — Audiobook series detail: volumes, runtimes, M4B/MP3 downloads
+
+Both series pages take the series as a **query parameter, not a path segment**: names
+contain spaces, `【】` and sometimes `/`, and the `%2F` a path param would produce is
+commonly normalized by a reverse proxy before the app sees it.
+`/audiobook-series` needs `author` too because the audiobooks page groups on author +
+series, unlike `/` which groups on series name alone.
+- `GET /pair` — "Editions": EN/JP pairing overview (linked pairs, a "Needs a decision" queue of `signal: "author"` books linking to their page, and Blocked / No other edition restore lists); decisions are made on the book page
+- `GET /add` — Upload/acquire EPUB page
+- `GET /known` — Known-words list import/manage
+- `GET /profile` — Reader profile: known/exposed-word/books-read counts, an exposed-vocabulary explainer, and the read-books list (`GET /api/profile/read-books` → `{books, orphans}`; `DELETE /api/profile/orphan-reads` clears the marks for books no longer in the library)
+- `GET /admin` — Pipeline stage runner
+
+### Book API
+- `GET /api/books[?series=NAME]` — All EPUBs as a sorted list, without the fields in `server._BULKY_BOOK_FIELDS` (the OPF synopsis `description`, which only `GET /api/books/{id}` returns and the book page shows, plus scan bookkeeping no page reads: `identifiers`, `opf_identifier`, `raw_*`, `scanned_at`, `schema`, `lang_source`, `mtime`, `filesize`, `path` — a denylist, so before reading one of those in JS, switch that page to `/api/books/{id}` or take it off the list); every book (and `GET /api/books/{id}`) carries `stable_key` (`pairing.stable_key`), the key the iOS reader files a position under, so a book with no pack can sync; `series` keeps only books whose `series_name` matches exactly (`/book/{id}` and `/series` use it instead of fetching the whole library)
+- `GET /api/books/{book_id}` — Single EPUB entry
+- `GET /api/books/{book_id}/study?n=100` — Top unknown words with example sentences + the learn-N curve
+- `POST /api/books/{book_id}/read` — Body `{"read": true|false}`; recomputes exposure for the whole library
+- `PATCH /api/books/{book_id}/read-date` — Body `{"read_at": "YYYY-MM-DD"}`: change the day this profile finished the book (`known.set_read_date`, stored as that day at noon UTC so a local month label can't slip). 404 unknown book, 409 not marked read, 400 a future day (a day of slack for timezones), 422 a malformed date. Recomputes nothing: exposure depends on which books are read, not when
+- `DELETE /api/books/{book_id}` — Delete the EPUB file, then `purge.purge_book(..., curated=True)` (cover, thumbnail, wordlist, sentence index, reader pack, vocab/Natively/audiobook-link entries, every profile's known-stats and read status, title/series/genre overrides), rebuild, and recompute known stats for the book's language
+- `GET /covers/{book_id}` — Cover image (`immutable` for a year: build every `<img>` URL with `coverUrl(b)` from `ui.js`, which appends `?v=cover_v` so a replaced cover reloads)
+- `POST /api/books/{book_id}/cover` (multipart `file`) / `DELETE` — Replace the cover with an uploaded image, or go back to the EPUB's own. 400 for a non-image/SVG/over 10 MB, 404 for an unknown book. Both return the `/details` state, whose `cover` is `{has, overridden, v}`; the details form's cover row calls them directly (not part of its one Save)
+- `GET /download/{book_id}` — Stream EPUB file
+
+### Reader API
+- `GET /api/reader/books/{book_id}/pack` (also `HEAD`) — the book's annotation pack, the stored gzip bytes sent with `Content-Encoding: gzip`, `Content-Type: application/json` and `ETag: "{schema}-{sha256[:16]}"`; `If-None-Match` → 304 without opening the file. Built on first request (off the event loop, never under `_index_lock`). 404 unknown book; 409 `{"reason": "drm"|"not_ja"|"no_text"}`. A client without `Accept-Encoding: gzip` gets the inflated JSON. See "Reader API" below
+- `GET /api/reader/vocab` — the requesting profile's effective known set for the phone: `{orth[], lemma[], not_words[], learning{orth:{lemma, reading, book_id, sentence, added_at}}, exposure{orth:n}, exposure_min}`. `ETag` (`reader.etag`) + `If-None-Match` → 304 before anything is built. An empty profile gets empty sets. See "Reader API" below
+- `GET /api/reader/progress` — `{"progress": {stable_key: {book_id, sha256, cfi, fraction, updated_at}}, "audio": {ab_id: {track, seconds, updated_at}}}`, every entry for the profile
+- `PUT /api/reader/anki-note-type` — the note type the phone's Settings › Anki describes: `{name, fields: [{name, sample}], front, back, css}` (422 empty/oversized, 400 duplicate field names), kept per profile in `users/<slug>/anki_note_type.json` (`epublib/anki_notetype.py`). `GET /api/profile/anki-note-type` → `{name, fields[], updated_at}` (404 until sent); `GET /profile/anki-note-type.apkg` → a genanki package of it with the phone's sample card (tag `hondana-sample`, deck "Hondana") for desktop Anki to import, since AnkiMobile can't create a note type. The ids derive from the names, so importing again updates rather than duplicates. /profile shows the download once one is sent
+- `POST /api/reader/events` — the phone's outbox: `{events: [{id, ts, type, …}]}`, at most 1000 (400 above). `type` is `status` `{orth, lemma, reading, status: known|learning|unknown|ignored, book_id, sentence}`, `lookup` `{orth, lemma, book_id, sentence}` `progress` `{stable_key, book_id, sha256, cfi, fraction}` or `audio_progress` `{ab_id, track, seconds}`; `ts` is Unix seconds or ISO 8601. Returns `{status, skipped[], rejected[{id, reason}], etag, books_moved}`. Replaying a batch changes nothing. See "Reader API" below
+- `GET /api/reader/books/{book_id}/alignment` — the sentence → time map of the book's linked local audiobook: `{schema, book_id, sha256, audiobook, srt_sha, coverage, ok, matched, total, docs: [{index, fnv, sents: [[startMs, endMs, part?] | null, …]}]}`, `sents[i]` lining up with the pack's `docs[].sents[i]`. `ETag` + `If-None-Match` → 304. 404 when none was ingested; 409 `{reason}`: `audiobook_changed` (the book is linked to another audiobook than the SRT was made for), `no_audiobook` (not local), or the pack's `drm`/`not_ja`/`no_text`. Below `align.OK_COVERAGE` (0.90) it is still served with `ok: false`, so the phone can decline to highlight. `GET …/alignment.srt` is the raw SRT (an mp3 folder needs `?part=<file name>`). See "Reader API" below
+- `GET /api/books/{book_id}/alignment/text` — the book's sentences, one per line (`text/plain`), exactly what a SubPlz run here is given as `{text}`; `X-Book-Sha256` is the EPUB they came from. 409 `{reason}`: `no_audiobook`, or the pack's `drm`/`not_ja`/`no_text`. Used by `cli.py align-remote`
+- `POST /api/books/{book_id}/alignment` — multipart `file` (an SRT, ≤ 5 MB each) + `part` for a multi-file audiobook (one SRT per mp3, by file name). An mp3 folder may send every file in one request (repeated `file` + `part`, same order): they are stored and matched together or not at all, and a rejected one restores the rest. An `X-Book-Sha256` header (from `…/alignment/text`) makes it 409 `book_changed` when the EPUB is no longer the one the SRTs were made from, storing nothing. Needs `audiobook_local`; matches at once and returns `{status, audiobook, coverage, ok, matched, total}`. 409 `no_audiobook`, 400 `bad_srt`/`bad_part`, 413. `DELETE` removes the SRT(s), map and any half-done run (and cancels a running one). `GET /api/books/{id}/status` carries `alignment: {state: none|ready|stale|queued|running, coverage, ok, step, error, eligible, can_generate}`: `step` ("2/5 file.mp3", "matching") while queued/running, `error` when the last run failed (the state is then whatever is stored, since a failed run touches nothing); `eligible` = a ja book whose audiobook is local, `can_generate` = `subplz_cmd` can run here (`server._book_alignment_state` adds both to `align.state`). `GET /api/admin/alignment-queue` → `{books: [{book_id, title, author, runtime_min, files}], total_min, can_generate}`: the eligible books with state `none` (what `align-remote --missing` works through), for /admin
+- `POST /api/books/{book_id}/alignment/generate` — queue a SubPlz run on the linked local audiobook; returns `{status: "queued", alignment}`, idempotent while one is queued/running. 409 `{reason}`: `subplz_not_configured` (with `detail`), `no_audiobook`, or the pack's `drm`/`not_ja`/`no_text` (checked first, so a book with no sentences is refused before any audio is transcribed). `DELETE` on the same path cancels (404 when none): the process group is terminated and the work dir kept
+- `GET /api/reader/dicts` — `{dicts: [{file, title, revision, format, author, attribution, url, size, sha256, kind}]}`, one row per readable Yomitan zip in `dicts_dir`, by file name. `kind` is `term`, `freq`, `pitch`, `kanji` or `mixed`. Files that aren't zips or have no `index.json` are left out; a missing folder is `{dicts: []}`
+- `GET /api/reader/dicts/{file}` — the zip (`application/zip`) with Range support and an ETag. Only a name in the manifest is served; anything else is 404
+- `POST /api/admin/dicts` (multipart `file`) / `DELETE /api/admin/dicts/{file}` — manage `dicts_dir` from /admin. `dicts.store` copies the upload in 1 MB chunks (cap `dicts.MAX_BYTES`, 1 GB) to a `.upload-*.part` temp file in `dicts_dir`, validates it with the manifest's own `_entry` (a zip with a readable `index.json`; else 400 `BadDict`), then `os.replace`s it onto its basename — a same-named zip is replaced, so a changed `(mtime_ns, size)` is how the phone sees an update — and returns its manifest row (201). `DELETE` uses `dicts.find`'s whitelist (404 otherwise). Neither takes `_index_lock`: they write only `dicts_dir`
+
+### Audiobook API
+- `GET /api/audiobooks` — Full audiobook library (joined with catalog)
+- `DELETE /api/audiobooks/{ab_id}` — Delete local file/dir, remove from files index, rebuild chain
+- `GET /api/audiobooks/hidden` — Manually pruned entries (titles resolved from the catalog, since a hidden entry is absent from the joined index by definition)
+- `GET /api/books/{id}/audiobook-link` — `{mode: auto|manual|none, link, catalog}` for the book page (the hero's caption, and the audiobook section of its Edit dialog). `POST` (body `{"isbn": "…"}` pins a catalog entry, `{"isbn": null}` = no audiobook) and `DELETE` (back to automatic) write `audiobook_link_overrides.json`, then `xref_one` + `build`. `GET /api/audiobook-catalog/search?q=` returns catalog entries (isbn, title, author, series, order, `local`) for the picker
+- `POST /api/audiobooks/hide` / `POST /api/audiobooks/unhide` — Body `{"ab_ids": [...]}`; maintains `audiobook_hidden.json` + rebuild chain. Batched: each call is one rebuild, so the `/admin` UI collects a selection and posts once
+- `GET /download/audiobook/{ab_id}[?part=filename]` — Stream m4b or individual MP3
+
+### Search API
+- `GET /api/search?q=&kind=&limit=` — SQLite FTS5 (trigram) search over the text *and* its romaji/kana readings, substring fallback for queries under 3 characters or if the index has a problem. `kind`: `catalog` (Audible metadata incl. descriptions) | `audiobooks` | `epub`. Returns `{source, ids}` — ids only, since every caller just filters already-loaded data by id; `source` is `fts`, `substring`, or `empty` for a blank query.
+
+### Add-book API
+- `POST /api/upload` — Multipart EPUB upload (`file`, `language` = auto/ja/en, `force`, `defer`). `auto` files into `Japanese/`/`English/` by the book's own metadata (`incoming.store_incoming_epub`); `other` stays in the root
+- `POST /api/acquire` — Download EPUB from URL (body `{url, language, force}`); streams the response and aborts past the 100 MB cap
+- `POST /api/books/analyze-batch` — Body `{book_ids}`. End of a multi-file upload: queues every `defer`red book plus the named ids as **one** pipeline run. `/add` uploads several files one at a time with `defer=true` (each still scans + builds so it gets a book id and a duplicate check), then calls this once; the page polls `GET /api/books/{id}/status` per row and ends with "10 added · 9 grouped into X · 1 not in a series". A held book that never gets its release (tab closed mid-batch) is queued anyway after `BookJobs.DEFER_TTL` (120 s)
+- Both return **409** `{status: "duplicate", detail, existing: {book_id, title, reason}}` when the file is already in the library (`reason`: identical file / same ISBN|ASIN / same title and author); `/add` shows "Open it" and "Add anyway", which resubmits with `force`. Entries carry a per-file `sha256` (scanner `SCHEMA_VERSION` 3); entries scanned before that are matched by hashing only same-size files
+- `POST /api/books/{book_id}/analyze` — Queue the book's **server-side per-book pipeline**
+  (`epublib/book_jobs.py` queue, `pipeline.run_book_chain` steps): `analyze` → `enrich` → `pair` → `xref_one` → `build`, with
+  `analyze` ending in `known.recompute_all()` so every profile gets its stats. Upload and
+  acquire enqueue it themselves, so it runs even if `/add` is closed; this endpoint is the
+  manual trigger (the book page's "Analyze now") and is idempotent while a job for the book
+  is queued/running. Returns immediately: `{status: "queued", job}`, or `{status: "skipped",
+  reason: "unsupported_language"}` for languages other than ja/en. One FIFO worker takes
+  `_index_lock` per run, and everything queued when it wakes runs as one batch (analyze/enrich/pair/build once, `xref_one` per book), so jobs queue behind each other and any running stage. Every
+  stage is library-wide but incremental, so the cost is the one new book (~5 s for a
+  57k-word novel with the Natively lookup). Each step is attempted even if an earlier one
+  failed; the job ends `done` or `error` with the failures joined in `error`.
+- `GET /api/books/{book_id}/status` — `{job, analyzable, vocab_status, known}` where `job` is
+  `{state: queued|running|done|error, step, error, queued_at, finished_at}` or null (nothing
+  queued since the server started — job state is in memory), `vocab_status` is the book's
+  vocab status (`ok`/`no_text`/`error`) or null — read from `vocab_epub.json`, not the served
+  `vocab`, which only arrives with the chain's `build` step — and `known` is this profile's
+  reading-load entry (null until `analyze` has run). Together they let `/add` draw the verdict
+  (and a batch row its strain chip) the moment `job.step` moves past `analyze`, while
+  Natively and the rest are still running. `/add` and the book page poll this.
+- `GET /api/setup` — The first-run checklist (`epublib/setup_status.py`): `{steps: [{id, label, required, done, detail, href, link}], complete}`. Required: `epub_dir` has an `.epub`, the library is indexed with every ja book in `vocab_epub.json`, this profile has known words. Optional (never gate `complete`): audiobooks scanned, the phone has synced (`reader_progress.json`/`lookups.jsonl` non-empty), `dicts.manifest` non-empty. Reads files only, no lock
+- `GET /api/genres` — The genre vocabulary the `/add` selector offers
+- `POST /api/books/{book_id}/genre` — Body `{"genre": "…"}`; writes
+  `genre_overrides.json` + rebuilds. An empty string clears the override back to
+  the derived value. Rejects anything outside `GENRES`
+- `GET /api/books/{book_id}/details` / `POST /api/books/{book_id}/details` — The one edit endpoint behind the book page's **Edit** dialog and the `/add` review card (`static/book_details.js`). POST body: any of `title`, `author`, `language` (`ja`/`en`/`other`), `genre`, `series` (`{name, order}`); omitted = untouched, `null`/`""` = back to automatic, `series: null` = back to automatic while `{name: ""}` pins the book standalone. One request = at most one `build` (none if nothing changed); a language change also purges derived data, recomputes all profiles and returns the queued pipeline `job`. Both return the current state: effective `values`, `auto` values (what it shows with no override), `overridden` fields, `series_names` (for the `<datalist>`) and a `suggestion` (existing series the title starts with) for a book with no series. The audiobook match keeps its own card (`/audiobook-link`). The older `/genre`, `/title`, `/series` endpoints remain for Edit mode on `/`
+- `POST /api/books/{book_id}/title` — Body `{"title": "…"}`; writes
+  `title_overrides.json` + rebuilds. An empty string clears the override back to
+  the auto-cleaned value. Free text, no vocabulary restriction. Surfaced as the
+  pencil (`icon("edit")`) action in Edit mode (`/` solo cards, `/series` volume rows)
+
+### Series management API
+Each writes its overrides file once and runs **one** `build()` however many volumes it touches (the per-book `/genre` and `/series` endpoints would build per volume); a call that changes nothing doesn't build. Unknown book ids → 404 before anything is written. Behind `/series` Edit mode (and the `/` series card's genre select).
+- `POST /api/books/genre` — Body `{book_ids, genre}`; `""` clears back to the derived genre
+- `POST /api/books/series` — Body `{assignments: [{book_id, series_name, series_order, reset}]}`. An empty `series_name` pins the book standalone; `reset: true` drops its override (back to the automatic series). Used to add a book to a series, renumber, and reset
+- `POST /api/series/rename` — Body `{from_name, to_name}`. Writes an override carrying the current order for every volume whose `series_source` isn't `pair` (translations follow their partner), so the result doesn't depend on which heuristic grouped them. A `to_name` that already exists merges the two series
+
+### Pairing API
+- `GET /api/pairing/suggestions` — `{pairs, blocked, suggestions, unpaired_en, romaji_available}`; `blocked` is every unlinked pair whose books are both still in the library (`{en, jp}`); each candidate carries `score`, `author_score` and `signal` (`author` when the author names match as well as an auto-pair needs, else `weak` — `/pair` shows the word, not the %, because below that bar the score can't tell a real match from noise)
+- `POST /api/pairing/link` / `unlink` / `block` / `unblock` — body `{en_key, jp_key}` (stable keys). `unlink` and `block` (the same write; `block` is "Not this one" on an unpaired candidate) add a block, so the scanner never re-pairs it and it stops being suggested; `unlink` also takes `block: false` to undo a link just made without leaving one. `unblock` lifts a block without forcing a pair (an auto pair comes back on the next `pair`). **Rejecting one of two same-author candidates leaves the other unambiguous, so the scanner auto-pairs it on the next `pair`** (pinned in `tests/test_pairing_review.py`). `link` clears `none` for both books.
+- `GET /api/books/{id}/edition` — one book's other-edition state for its page (`pairing.edition_state`): `{eligible, book, mode: auto|manual|none|unpaired, partner, candidates, others}` (`book` is the book itself with the `stable_key` its link requests need). `eligible` is false for books that aren't ja/en. While unpaired, `candidates` are up to 4 ranked opposite-language books (`signal` `author`|`weak`, see below) and `others` every opposite-language book still unpaired (the by-hand picker). Reads the `pairings.json` the last `pair` wrote, so it matches the page's `pair_partner`. `POST` / `DELETE /api/books/{id}/edition/none` set or clear **"no other edition"** (stable key in `pairing_overrides.json`'s `none` list): the book is skipped by auto-pairing and never suggested or offered as a candidate; 409 if it is currently paired (unlink first), 400 outside ja/en. `/api/pairing/suggestions` omits `none` books from `suggestions` and lists them as `no_edition`. `/pair` confirms an unlink, lists blocks under "Blocked pairs" with Allow pairing, and lists `no_edition` books with a restore button
+
+### Known-words API
+- `GET /api/known-words` — Summary only (count/date/source/marked). The full list leaves the server only for the profile's own iOS reader, as `GET /api/reader/vocab`
+- `POST /api/known-words` — Multipart `file` (≤5 MB) or `text` field + `format` (auto/jpdb/anki/text) + `mode` (replace/merge; the API defaults to replace, `/known`'s form to merge and it confirms a replace); recomputes Known % and rebuilds. Returns `{imported, total, books_updated, marked, snapshot}`: `snapshot` is the id of the copy saved before a replace (null for a merge or an empty list), which `/known`'s result banner restores as **Undo**
+- `POST /api/known-words/mark` — Body `{"words": [...]}`; adds hand-marked words, recomputes + rebuilds. `known.mark`, `unmark`, `skip` and `unskip` are all `known.apply(cfg, mark=, unmark=, skip=, unskip=)` with one argument: one read, one `_write`, which the iOS reader's batches rely on. `mark`, `unmark`, `skip` and `unskip` all return `books_updated` (books scored) and `books_moved` (books whose Known % or strain actually changed, `known.recompute_moved`) — `/known`'s tally says "Known % moved on N books" from it
+- `POST /api/known-words/skip` / `unskip` — Body `{"words": [...]}`; set names/fragments aside as "not a word" (free in every book's reading load, off the study and review lists) and put them back; `GET /api/known-words` lists them as `not_words`
+- `POST /api/known-words/unmark` — Body `{"words": [...]}`; removes them again. Only words in `marked` can be removed — imported words come back as `skipped`
+- `GET /api/known-words/frequent?n=100[&loan=1][&after_books=&after_total=&after_word=]` — Unknown words across the whole library, widest reach first, paged (the UI's "Show more" loads 100 at a time). `loan=1` keeps only loanwords (filtered before paging, so low-reach ones like names aren't lost). `after_*` is the last shown row's rank key — a cursor, not an offset, because marking words removes them from the list between pages. Response carries `has_more`
+- `DELETE /api/known-words` — Clear list + recompute + rebuild
+- `GET /api/known-words/snapshots` / `POST /api/known-words/restore` — Body `{"id": …}`. The lists saved before each replace-import, Clear and restore, newest first (`id`, `created_at`, `reason`, `source`, `count`, `marked`); restore swaps one in, recomputes, 404 for an unknown id
+- `POST /api/known-words/seed` — Optional body `{"top_n": N}`; replace the list with wordfreq's top-N words for the active profile's language (`known.SEEDABLE_LANGUAGES` — en/ja), defaulting to `known.SEED_TOP_N` (10,000). 400 if the language isn't seedable, or if the list already has words from a real import rather than a previous seed step (`known.seed_common`'s guard — seeding replaces the list, so it refuses to run over curated data)
+- `GET /api/known-words/seed/preview?top_n=N` — Read-only: the words the next seed step up to `top_n` would add, excluding anything already known
+
+### Admin API
+- `GET /api/admin/stages` — Stage list: `id`, `label`, `description`, `group`, `chips`, `in_chain` (from `pipeline.Stage`, via `server.ADMIN_META`), plus `last_run` (epoch seconds of the stage's newest `data/logs/` file, null if never run; logs outlive a restart, the in-memory run status doesn't)
+- `GET /api/admin/status` — Poll running stage. While running it carries `tail` (the last 8 output lines, kept by `_LiveTail` under `_status_lock` only) and `now` (server clock, so the page's elapsed timer ignores its own)
+- `POST /api/admin/run/{stage}` — Fire a stage
+
+## Key backend patterns
+
+**Path traversal guards** — `_safe_epub_path(rel)` and `_safe_audiobook_path(entry)` in `server.py` both resolve paths inside their respective roots and raise 400 if the result escapes the root.
+
+**`_index_lock`** — a `threading.Lock` in `server.py` that serializes every writer of `data/`: `_admin_worker` holds it for the whole stage run, and every endpoint that saves an index/override or calls `build()`/`recompute()`/`scan()` takes it (delete, upload/acquire, pairing link/unlink, overrides, hide/unhide, known-words, analyze). Delete endpoints take it *before* loading the index and mutate a private `load_json` copy, never the cached dict. `_status_lock` guards only the `_admin_run` status dict (so `/api/admin/status` never blocks behind a stage); `_profiles_lock` guards profile create/switch so those don't queue behind a stage either.
+
+**`_load_library()`** — returns the mtime-keyed cached dict from `index_store.cached_json` (a save changes the mtime, so stage output is visible immediately). It is shared between requests: treat it as read-only, and use `load_json` when you need a copy to mutate.
+
+## Frontend
+
+Static files in `static/`; no build step.
+
+| File | Page | Role |
+|---|---|---|
+| `app.js` + `app.css` | `/` | Series-grouped cards + table view, filter (language, genre, paired/audio/unread) / sort, Edit mode |
+| `book.js` | `/book/{id}` | Book detail page (id parsed from `location.pathname`); the night hero carries the Reading load readout |
+| `series.js` | `/series` | Series detail: a `/next`-style hero with a series-wide readout (see below), then volume rows (the `/next` queue-row layout, `.queue-row` in `app.css`) with strain chip, EPUB + audiobook downloads, Edit mode |
+| `audiobooks.js` + `audiobooks.css` | `/audiobooks` | Audiobook series cards (navigation only) |
+| `audiobook_series.js` | `/audiobook-series` | Volume list in the same queue-row layout: runtime, Natively level, companion-EPUB chip + its strain, M4B/MP3-track downloads, Edit mode |
+| `pair.js` + `pair.css` | `/pair` | Editions overview, in this order: "Needs a decision" (a row is both books, cover + title + author, a "Same author" chip and **Compare…** → `/book/{id}`), Linked pairs (Unlink lives behind each row's ⋯, then the shared confirm), Blocked pairs (Allow pairing), No other edition (Look for an edition → `DELETE /api/books/{id}/edition/none`). The last two are `<details>` whose `<summary>` holds an `<h2>` and a rotating chevron |
+| `add.js` | `/add` | Choosing or dropping files is the commit: bad files (not `.epub`, over 100 MB) are turned away by name, the rest upload at once as one row each (size, progress, × to abort) in a staged card; the language is always `auto` (fixed in the result's edit form). URL form folded below the results. A finished batch answers "which of these can I read?": the summary banner moves to the top of the staged card (`placeStatus()`), then the series strip when most of the batch is one series (`strainStrip(vols, {marks: true})`, full width, band thresholds dashed in, plus "Start with vol N": the first unread volume in the gentlest band), then the rows, reordered by `settleBatch()` — volume order for the series' own rows, otherwise Read Next band then strain; unscored books, then duplicates, cancelled and failed rows (a state icon in place of the bar) last. A finished row shows the cover, strain chip, Natively level and, on a high/heavy book, a Study list link; title links carry a dotted underline. The banner is green whenever a book was added and counts only the reading answer and the filing ("grouped into"); already-owned, failed and cancelled files are said on their own rows (`rowOutcome()`: the outcome and its actions are separate items that wrap on their own), and the banner counts them only when nothing was added. Below 900px a row stacks (name and ×, then bar and state) and a title takes two lines (`.uq-t`); links there are 32px targets. The strip's dashed thresholds are labelled with the band that starts at them ("33% high"). "grouped into" is for real series only (a standalone repeats its title as `series_name`). A file dropped anywhere on the page is an add (`window` drop handlers, so a stray drop never navigates): idle, it replaces a finished result like "Add another"; while anything runs (`isBusy()` = uploads in flight or a `tracked()` flow: single add, batch, URL download, analysis) it is turned away with a note that names the files ("Wait for these to finish, then add: a.epub, b.epub"; once idle it reads "Not added while the last add was running — drop again: …" until the next add, `paintWaitNote()`), and the URL form is disabled with its reason. A proxy 413 blames nginx's limit (no Retry); "saved, but indexing failed" offers Build index on `/admin` rather than "Choose another file". A single duplicate is said once, by the neutral well (the queue row retires, as it does for a success), whose actions are Open it / Add anyway / Choose another file; focus moves to the well. Then the verdict-first result: an "Added to your library" line on the hero (until Add another), cover + title, the shared reading-load readout, Natively chip + Read Next band, actions, and the folded edit-details form |
+| `audio_sync.js` | `/book/{id}` | The **Audio sync** card, mounted by `book.js` into a hidden `#sync-slot` right after the vocabulary card (so the series card lands before it), only for a ja book with `status.alignment.eligible`. Renders `alignment.state`: ready (coverage, or "Only N% matched; the app won't highlight"; Remove behind ⋯ → confirm → `DELETE …/alignment`), queued/running (the `step` + Cancel → `DELETE …/alignment/generate`, polled every 3 s, a toast when the run ends), none/stale (Generate → `POST …/alignment/generate` when `can_generate`, else the `uv run cli.py align-remote <book_id> --server <url>` command with a Copy button — `copyText()` in `ui.js`, which works on the plain-http LAN address — and a link to `docs/audio-sync.md`), and the last run's `error` with Try again. The server address in the command is `/api/connect`'s, so a localhost page still names the LAN address |
+| `admin_dicts.js` | `/admin` | The **Dictionaries** card (loaded after `admin_sync.js`): the shared `.dropzone` (multiple `.zip`, also dropped) uploading one at a time by XHR with a percentage in `#dc-status`, then a row per `GET /api/reader/dicts` entry with Delete behind `confirmDialog`. Errors are named per file (a 413 blames nginx's `client_max_body_size`) |
+| `admin_sync.js` | `/admin` | The **Audio sync queue** card (loaded after `admin.js`): `GET /api/admin/alignment-queue` as rows linking to each book with its hours of audio, the total, and the `align-remote --missing --run` command to copy. Read-only |
+| `edition.js` | `/book/{id}` | The other edition (loaded before `book.js`, which calls in): **the well** under the hero (`#edition-well`, a neutral well: "Is this the English edition?", the candidate, its signal word, **Yes, same book** (secondary, never coral) / **Not this one** / **No English edition**) shown only for an unpaired book with a `signal: "author"` candidate (weak guesses never prompt on the page), and the Edit dialog's **"English/Japanese edition" card** (current pairing, Unlink behind the shared confirm, Back to automatic, "Possible matches" incl. weak ones, a by-hand picker over `others`, No other edition; applies at once with the audiobook card's inline Undo, closing the dialog reloads — `edChanged`). `GET /api/books/{id}/edition` is fetched with the book so the well is in the first paint. Yes reloads (`reloadKeepingPlace(focusId, notice)`: the hero chip and an English book's inherited series change); the toast can't survive a reload, so the notice and its Undo ride in `sessionStorage` as data and `book.js` shows them once back. Not this one / No other edition redraw in place with a toast Undo, unless the book is now paired (the scanner pairs the other candidate once one is rejected, or when "no other edition" is lifted): then reload with **"Paired with X instead."**. That notice's Undo lasts 15 s (`showReloadNotice`), and after an Undo reload focus lands on the well's question (`edFocusAfter`) rather than `<body>`; a rejected pair can always be lifted later with Allow pairing on `/pair`. A toast Undo isn't visible above a modal dialog, so the card uses inline Undo |
+| `book_details.js` | `/book/{id}`, `/add` | Shared edit-details form (`BookDetails.mount(el, bookId, {onSaved})`; `/book` hosts it in a native `<dialog>` opened by the header's top-right Edit button, `/add` inline in its review card): one Save → one `POST /details`, per-field "Reset to automatic" staged with the save, series `<datalist>` + suggestion, plus a cover row (replace / reset) that acts at once and calls `onSaved(result, ["cover"])`. Styles are `.bd-*` in `app.css` |
+| `known.js` + `known.css` | `/known` | Cards in this order: **Your known words** as a one-line status strip (count · `sourceLabel()` turns the stored source — a jpdb export file name, `paste`, `seed:top-N-lang` — into words · date · marked by hand · the exposed-vocabulary clause linking `/profile`; an empty list says so and links to Manage; the seed block under it for an empty or seeded list), **Review frequent words** (the recurring job; the subhead "Top 100 of N …" is `#freq-sub`, the how-to is a `<details>` that stays shut once closed (`localStorage` `known-howto-closed`): ✓ and ⊘ per row, two `createMarker`s, a sticky tally pill; the table is a `freq` container — below 520px the reading/Books/Uses columns drop and `.freq-meta` carries them under the word; "Show more" appends rows, never rebuilds; no Diff column; fast path: roving-tabindex rows — ↑/↓/Home/End move, `k` known, `n` not a word, `u` undo via an in-page stack, a skip link past the table, a 100/250/500 rows-per-page select kept in `localStorage`, and on the Loanwords filter "Mark these N as known…" (the shown rows not yet ticked/set aside, behind `confirmDialog`, through `marker.set()`); `#freq-note` is a polite live region; ⊘ and ✓ are two columns headed "Not a word" / "I know it" (header words go sr-only below 520px, where the first row's buttons read "Skip" / "Know"), and a failed save names the words that didn't save; the tally counts rows (`marker.count()`, not spellings), "of N" drops as rows are ticked, a save's `books_moved` shows as "Known % moved on N books", and the end of the list says how many were reviewed; on a phone the review loop's buttons, filter chips, rows-per-page select, Show more, Put back and the import radios' labels are 44px targets with 12px+ between ✓ and ⊘, the "Known % moved on N books" note rides only on the tally of the button that saved last, and the tally docks to the foot of the screen; rows carry `scroll-margin-bottom` so keyboard focus clears it), **Set aside as not a word** (when non-empty), then **Manage list** (folded in a `<details id=manage-fold>`, open only while the list is empty; import through the shared `.dropzone` — a `<label for>` around an `.sr-only` input, styles in `app.css`, also `/add` — plus Format/Mode `<fieldset>`s, Restore an earlier list, and Clear behind the heading's ⋯) |
+| `next.js` | `/next` | Read Next: ranking (band → hard sentences in ten → new words), night-hero top pick + reading-load readout, runners-up, queue in strain bands (tabs + append-only paging) |
+| `profile.js` | `/profile` (a `<main>` with a skip link; "Vocabulary" is an `<h2>`, the tiles a `<ul>` of links; Japanese titles/authors carry `lang="ja"` via `langAttr()`) | Slim identity row, the "what can I read now" outcome card (unread low-strain books out of what `/next` ranks, counted by `ui.js`'s `analysedBooks()` + `oneBookPerSeries()` + `queueBand()` so it matches `/next`'s *Comfortable now* tab; links to `/next` and `/known`), linked vocab tiles (each ends in an icon for where it goes: arrow = `/known`, chevron = further down this page; the Exposed tile defines itself: "met N+ times in books you've read", N = `exposure_min` from `GET /api/known-words`; the tile grid is a container query on `.stat-section`, not a viewport breakpoint; a seeded list reads "Common words"; with no exposed words and no reads the page keeps only the Known tile plus a one-line hint and drops the explainer), a folded `<details>` explainer ("What these numbers mean": Known words, Exposed, Known %, strain; no "study list" wording, since not every profile uses a deck; the Exposed tile opens it), read-books list (each tile carries a pencil, a sibling of the tile's link, that opens a date picker through `promptDialog` and `PATCH`es `/read-date`; a single read month is said once under the heading; the orphan notice sits below the grid and names titles, else when the marks were made). The four requests are independent (`state` + `fetchPart(key)`): a failure renders as a named, retryable error in its own section, never a blank page |
+| `mark.js` | `/book/{id}`, `/known` | Shared click-to-mark-known: optimistic row toggle, debounced batch POST |
+| `viewstate.js` | all pages (loaded by `partials/head.html`) | `ViewState.create({path, fields}).apply()/.write()` mirrors a page's filter/sort/search controls to the URL query (`/?q=…&lang=ja&genre=…&sort=strain&view=table&paired=1&audio=1&unread=1`; defaults omitted) via `history.replaceState`, so a filtered view survives opening a book and can be bookmarked or shared; the query is also remembered per page in `localStorage`, and `nav.js` sends a plain `/` or `/audiobooks` link (sidebar, a series page's "← Library") back to that remembered view. A link that already carries a query (an author's `/?q=Name`) is left alone, and a URL opened from outside doesn't overwrite your remembered view until you change something. `/audiobooks` uses `q`, `avail`, `genre`, `sort`. To persist a new control, add it to that page's `fields` |
+| `search.js` | `/`, `/audiobooks` | Shared server-side search: `fetchIds(kind,q)` → match-set of ids the page filters its loaded data by; debounce helper |
+| `admin.js` | `/admin` | Two columns (pipeline | audiobook prune cards). Stages are listed by `group` (Maintenance is a closed `<details>`) with the description's first sentence as a visible hint and the rest behind a "More" toggle (`splitHint`; both paragraphs feed `aria-describedby`) — so **write a stage's `description` with a short first sentence**, numbered in run order, with chips; "Run full pipeline" is a secondary button above them, its hint saying "Runs the N numbered stages" and its confirm naming the stages by label, never id. `CONFIRMS` holds the only two confirms (`all`, `enrich-audiobooks`). Status: an elapsed timer + log tail while running, then a one-line summary parsed client-side from the report's closing lines (`SUMMARIES`, best-effort; "all" reports scan/pair/catalog; after `pair`/`all` it also counts books waiting on a decision) and stage-aware `LINKS`; each stage row shows "Last run 2 hours ago" (from `last_run`; ages use the server clock via `status.now`), the status area opens on "Last run: <stage>, <age>" when nothing has run since the server started, and a result restored on reload says when it finished; the live region is a separate `.sr-only` `#run-announce`, written only on start and finish; the stage in flight shows a "Running" chip in place of its last-run line (`markRunning()`), and a failed run ends with one line on what to do (`FAILURE_HINTS`, matched on the error + report text; else "The report below has the details") and a **Run again** button that clicks the stage's own button, so a confirm still applies |
+| `nav.js` | all pages | Sidebar collapse/expand; the sidebar Known-words card, which fetches the count once and then follows a `known-words-changed` window event (`detail.count`) — `known.js`'s `refreshSummary()` and `mark.js` fire it, so any new code that changes the list should too |
+
+**Search is server-side.** The `#q` box on `/` and `/audiobooks` doesn't only substring-filter loaded data — it calls `/api/search` (SQLite FTS5, see above) and filters by the returned id set (`app.js` on `book_id`, `audiobooks.js` on any volume's `ab_id`). Each keystroke does an instant local substring pass first, then upgrades to the server-confirmed match set; a network error degrades to the local pass rather than breaking the box. So a query can match text the client's loaded fields can't reach — e.g. a hit inside `description_full`, which isn't shipped to the client at all.
+
+**`/next` is the exception to the card grid** (`templates/next.html` + `next.js`, design 5e
+"Night hero"; reworked by the 2026-10 critique). The #1 book gets a full-width hero that
+follows the theme (light card; purple gradient under `body.dark`): cover + title/chips/actions on
+the left, a **reading-load readout** on the right — the strain verdict as a word in its bucket
+colour plus one sentence ("6 in 10 sentences have no unknown words, and you'd look a word up
+about once every 7 words", from `flow_pct` and `tokens_per_lookup`), the **load bar**
+(`loadBarHtml()`: sentences with no / one / two-or-more unknown words) with its legend, and the
+new words to 98% coverage. It deliberately does **not** use the 85–100% coverage meter: most of
+a library sits below 85% known, so the meter drew "barely started" next to a "low strain" verdict.
+#2 and #3 sit side by side below it as runner-up cards (thin load bar + their two keys); #4+ is
+the queue, **in strain bands** — "Comfortable now" (low), "A stretch" (some), "Study first" (high
++ heavy) — shown **one band at a time** behind a sticky tab row (`.seg` pills, `role=tablist`, arrow
+keys; counts under the label below 560px of container width): the active band is one shelf card of
+1px-ruled rows, 10 at first, with a quiet "Show 10 more" that only appends ("Showing 10 of 36") —
+there is nothing to fold back up, and the other bands are one tap away. Each band remembers how many
+rows it shows. The tab row sticks under the page header (`--header-h`, measured in `next.js`; `top: 0`
+on phones). A tab's count is every book in the band, the ones above included. `ranked()` sorts by **band, then hard sentences in ten
+(`Math.round(hard_pct / 10)`), then `words_to_98`**, and every key is printed on the row ("1 in 10
+sentences hard · 925 new words"), so the order reads off the page. The rounding is deliberate:
+exact `hard_pct` would let a long omnibus's slightly lower strain (length bias, see "Reading load")
+jump it over far cheaper books. "Study first" rows link to the book's study list
+(`/book/{id}#study-card`; `book.js` scrolls to the card once it loads). The strain-vs-cost scatter
+was retired with this ordering: its one insight, "high strain but few words: study first", is
+what the Study-first band now says. The hero and runners-up sit in a size container (`.top-row`, `@container
+next-top`): the readout drops under cover + title below 820px of *container* width, and the
+phone layout applies below 620px — a viewport breakpoint can't see the sidebar. Only the hero's
+EPUB is the coral primary; runner-up and queue rows use `tone: "quiet"` downloads (and pass
+`label` so each link is named after its book). Every card has an **audiobook slot** from
+`audioAction()` (`dlAudio(…, {placeholder: true})` in `ui.js`): **M4B** (headphones icon) when
+the file is local, **Audible ↗** when only a catalog URL exists, else a `No audiobook` placeholder
+(dashed in the hero, plain muted text in quiet rows) — so the slot never disappears. Queue-row
+audio buttons are a fixed `6.5rem` wide (sized to the longest label) so the column lines up; on
+phones each row's two buttons split a full-width row. On phones the header's filters fold behind
+the toolbar toggle (as on `/` and `/audiobooks`).
+
+**One card shape for everything.** Both grid pages render a single `card()` template —
+fixed height, one grid column, cover + 2-line-clamped title + author + at most four
+chips — so covers, chips and card bottoms line up across every row. The fixed
+`.title`/`.author`/`.chips` heights in `app.css` are what reserve the space; a
+`-webkit-line-clamp` alone does not, so a one-line title would otherwise sit a line
+short. Cards are navigation only: volume titles and every download control live on the
+`/series` and `/audiobook-series` pages. Event handling uses delegation on the stable
+`#grid` (or `#page`) container so it survives every `render()` call.
+
+Chip budget is deliberate: lang, strain, ✓ known and ✓ Read stay on the card;
+difficulty, word count and the JP+EN pair chip moved to the detail pages, because seven
+chips is 2–3 rows and defeats a fixed card height. `docs/dev/03-known-words.md` has
+the reasoning for why strain leads and `difficulty_avg` does not. Strain shows as a
+**worded bucket** (very low / low / moderate / notable / high / very high / heavy strain, colour-coded in four steps via `strainBucket()` in
+`ui.js`) rather than a bare `%`; the exact `hard_pct` is in the chip's tooltip.
+`/audiobooks` cards add a **genre** chip (same `genre` that feeds the filter).
+
+**Series card stats describe volume 1**, not an average across volumes — vol 1 is what
+you'd actually pick up, and averaging vol 1 with vol 5 describes a book nobody reads.
+Vol 1 may be unanalyzed (image-only/DRM) or have no `known` entry, so `groupBooks()`
+falls back to the earliest volume that has each value rather than rendering blank chips.
+
+**The `/series` hero is the exception: it describes the whole series.** It reuses `/next`'s
+night-hero shape (shared styles in `static/hero.css`, page-specific in `static/series.css`) with a "series readout" — strain and flow
+weighted by `vocab.sentences`, known weighted by `vocab.content_tokens` (so the series reads as
+one long book), volumes read, and a per-volume strain strip (bar height = `hard_pct`, filled =
+read) in place of the coverage meter. `words_to_98` is left out because unknown words overlap
+between volumes, so per-volume counts can't be summed. The readout and the "Next up" volume
+(first unread) only count volumes in the reader's language — a pair-inherited translation
+stays in the volume list but has no `known` stats for this profile. The same reader-language
+volumes (`readerVolsOf()`) also supply the hero's cover and author, the cover badge and the
+"N volumes" count, and lead a shared-number pair in the list (the translation follows its
+partner). A one-volume series drops the readout and strip. The list marks a skipped
+whole-number volume ("Vol 02 isn't in the library"), and "Next up" adds a one-line link to the
+gentlest unread volume when it is itself a Study-first (high/heavy) book and an easier band
+exists (`gentlerHint()`); it never changes which volume is the default.
+
+**Natively level shows as a cover sticker on `/` and `/audiobooks`** (a tilted `Lv N`
+badge, colour-banded by level via `levelBand()`; from `b.natively.natively_level` for
+EPUBs and the audiobook entry's top-level `natively_level`). This reversed an earlier
+decision to hide it — the display was restored at the user's request (2026-07-23), but
+Natively level is a *quick human-judged read*, not the ranking signal: both pages offer a
+**"Natively level" sort** (ascending, easiest first, unrated last — added the same day, 308c5d3;
+for audiobooks it's the only difficulty sort there is), but there is deliberately **no level
+filter**, and `/next` ignores it, because the personalized reading-load metrics (strain/known)
+supersede a user-judgement score for "what can I read now". The series volume-count badge sits at the
+cover's bottom-left so the `Lv` sticker can own the top-left.
+
+**`/add` analyzes what it just added.** Adding a book used to end at "Added <title>": the
+file landed in the library with every difficulty number blank until someone remembered to
+run the pipeline, so the one moment the reader is actually curious about a book told them
+nothing. The server now runs that book's chain (`book_jobs`, queued by upload/acquire; the page
+confirms it with the idempotent `POST /api/books/{id}/analyze` and polls
+`GET /api/books/{id}/status`) and the page reports
+the result — led by the reading verdict: cover + title, then the same readout `/book` draws
+(`loadReadoutHtml()` in `ui.js`: verdict word, `feelSentence`, load bar, to-98% / known), a blue Natively
+chip, "Lands in <Read Next band>" (`QUEUE_BANDS`/`queueBand()` in `ui.js`), and the next actions
+(Open book, EPUB, the study list for a high/heavy book). The extracted metadata is one line whose
+"Edit details" opens the `BookDetails` form in place. The render is progressive and built once per
+book: the hero appears as soon as `GET /api/books/{id}` returns, with the readout's footprint held
+by a placeholder showing the current step until `analyze` lands (then the verdict is drawn from the status endpoint's `known`, with the Natively chip still "Matching Natively…" and the links held back; the end of the chain redraws only what changed, never an identical readout — an open form isn't replaced either). Every
+non-`ok` path has its own copy rather than a blank panel — English books (pipeline is
+JP-only), `no_text` (image-only/DRM), and "no known-words list imported yet", which is the
+one case where the text analyzed fine but there is nothing to measure it against.
+
+**Description for EPUBs** is the OPF's own (`raw_description`, kept like `raw_title`; about 1 in 6 EPUBs have one), else the linked audiobook's `description_full`, else the one `epub-catalog` fetched by ISBN; `build` writes `description` (the audiobook listing made plain text, `textnorm.plain_text`) + `description_source` (`epub`|`audiobook`|`isbn`|null) and the book page notes when a synopsis isn't the EPUB's own. `GET /api/books` omits `description`/`raw_description` (book page only).
+
+**Genre for EPUBs** is `build.build()`'s join of three sources: the linked audiobook's
+catalog entry (free for ~40% of the library, since the catalog carries a genre and the
+xref stage already links the two), else the ISBN lookup, overridden by a hand pick from the `/add` selector.
+The vocabulary is the audiobook catalog's own — derived by `server._genres()` (most common first, minus エロ) from the merged catalog, so a genre Audible introduces for a newly pulled audiobook becomes selectable — so one word
+describes a book and its audiobook alike. **エロ is deliberately excluded** from the
+selector — those titles are on their way out of the collection, so offering the label
+would only create work. `/` has the same **genre filter** as `/audiobooks`, offering the genres the loaded
+books actually carry; the genre is also shown on `/add` and the book page.
+
+**Title cleanup for EPUBs** — OPF `dc:title` often carries a trailing
+publisher/imprint parenthetical (`(角川文庫)`), 【edition】 marker
+(`【電子特別版】`), or an appended English translation
+(`… - Harry Potter and the Philosopher's Stone`). `build.build()` strips these
+(`textnorm.display_title`) before writing the displayed `title` — and also a leading `【label】`, a leading imprint (`双葉社ジュニア文庫 …`), a leading/trailing edition marker (`新装版`, `全６冊合本版`), spaced-out kana (`モ　モ` → `モモ`) and full-width digits/letters (`１` → `1`), each only when a real title is left over — or applies
+a hand-typed override (`title_overrides.json`, via Edit mode's edit action)
+when one exists — the override always wins. The English-translation strip is
+gated on CJK appearing earlier in the string, so a genuine English book's real
+` - Subtitle` is never touched. The raw, uncleaned title from the OPF is kept
+separately as `raw_title` (written once by `scanner.scan()`, never touched by
+`build()`) specifically so that clearing an override can re-derive the clean
+title rather than being stuck with whatever the override last said — `title`
+itself gets overwritten by every build, so it can't double as its own cleaning
+input.
+
+## Vocab analysis (analyze stage)
+
+jpdb-style stats per Japanese EPUB, computed from the full spine text:
+
+- **Word identity** = UniDic `orthBase` (dictionary spelling as written, NFKC-normalized) — matches wordfreq's corpus and jpdb export spellings; NOT the canonical `lemma` (為る vs する).
+- **Length (words)** excludes punctuation, aux verbs (助動詞), and predicate-bound particles (接続助詞/準体助詞) to emulate jpdb's word units. `content_tokens` (also excludes all particles) is the denominator for Known %.
+- **Difficulty /100** maps `wordfreq` Zipf frequency linearly between `Z_EASY=6.0` (→0) and `Z_HARD=1.5` (→100), token-occurrence-weighted; proper nouns and numerals are excluded from the distribution. Tune the constants in `analyze.py`, then `cli.py analyze --refresh` (no schema bump needed).
+- **Kanji readings** are approximate: surface↔kana regex alignment plus fixpoint peeling of compounds with gemination/rendaku variants; UI marks the number with ≈.
+- Calibrated against jpdb's published numbers for 夏へのトンネル、さよならの出口 — all metrics within ±15% except readings (±25%); characters/kanji within ±1%.
+- Books with `status: "no_text"` (image-only/DRM/<500 chars) or `"error"` show a notice instead of stats. Bump `SCHEMA_VERSION` in `analyze.py` to force re-analysis after logic changes.
+- fugashi/wordfreq imports are **lazy** (inside functions) so `serve` startup stays light — keep it that way. The sentence index carries each word's reading and difficulty precisely so `study.py` never needs either library at request time.
+
+## Reading load (known stage)
+
+`vocab_epub.json` is **user-independent**; everything relative to the reader lives in
+`known_stats.json`. This split matters: `difficulty_avg` spans only 17–29 across the
+library and correlates with actual strain at r≈0.24 — it ranks books roughly at random
+for the purpose of "what can I read now". The metrics below replace it as the primary
+signal.
+
+- **`hard_pct`** — share of sentences with ≥2 unknown content words (`STRAIN_THRESHOLD`).
+  The headline number: one unknown word is inferable from context, two or more forces
+  you to stop and reassemble the sentence. Also `flow_pct` (zero unknown) and `i1_pct` (one).
+- **Known-word matching is two-space.** A deck spells a word how its author typed it
+  (かも知れない), a book spells it how *its* author did (かもしれない). `known.normalize()`
+  tokenizes each entry at import and stores both `orth` and `lemma` keys; a book word
+  matches on either. This recovers ~40% more word types than orthBase alone — the
+  single largest correction in the pipeline. Re-import the list after any change here.
+- **In-book acquisition** (`ACQUIRE_AFTER = 5`): a word stops counting as a lookup after
+  5 encounters *in the same book*. Without it every one of 正木's 113 mentions counts as
+  a separate lookup. Applies only to the sentence-level metrics — `known_pct` and
+  `words_to_98` stay static coverage figures.
+- **Free words** are never a lookup regardless of the known list: proper nouns, numerals,
+  and bound affixes (接尾辞/接頭辞 — たち, くん, 大-). Flagged in the sentence index.
+- **Exposed vocabulary**: words used ≥5× in a book marked read (`EXPOSURE_MIN`) count as
+  known everywhere else, tallied separately in `exposed_unique`. A book is always scored
+  *excluding its own* contribution (`exposure_for`), or a finished book would trivially
+  report near-zero strain against its own vocabulary.
+- **Known bias — longer books score easier.** At equal coverage the longest third of the
+  library shows ~26% strain vs ~34% for the shortest, because acquisition has more
+  chances to fire (corr with log length ≈ −0.50). Compare same-length books, or read
+  `hard_pct` alongside the Words column.
+- **Marking words known one at a time.** A deck export records what the reader chose to
+  *drill*, not what they can *read* — 先輩, 弁当, 持つ, すぐ are missing from every export
+  for the same reason nobody cards them, and were counted as unknown in every book. The ✓
+  button on a book's study list and on the `/known` review list adds them via
+  `POST /api/known-words/mark`. Marked words live in their own `marked` set inside
+  `known_words.json`: `unmark` can only remove those (imported words come back as
+  `skipped`), and `save(mode="replace")` unions them back in, so neither an accidental
+  click nor a routine deck re-export can destroy the other's work.
+- `recompute()` reads only stored indices — no EPUB access, no tokenizer — so a re-import
+  refreshes all 73 books in about a second. `known` is resolved per-request rather than
+  baked into `epub_library.json` (see "Reader profiles" below), so no `build.build(cfg)`
+  call is needed after it — the numbers are live on the next `/api/books` call.
+- **Measured costs** (73 books): `normalize()` 0.21 s, `recompute()` 0.99 s, `build()`
+  0.02 s, full sentence-index sweep 0.32 s. A single-word mark therefore takes the same
+  honest full path as a bulk import (~1.6 s end to end) rather than an incremental one.
+  See `docs/dev/04-perf-baselines.md` before designing around slowness here.
+
+## Reader API (Hondana iOS)
+
+Hondana iOS (bry5an/hondana-ios) is a native reader; the server does the language work and the phone only places it on the rendered page. The API is LAN-only like the rest of the app.
+
+**Pack format** (`annotate.ANNOTATE_SCHEMA = 1`, `GET /api/reader/books/{id}/pack`):
+
+```json
+{"schema":1,"book_id":"…","sha256":"…","stable_key":"asin:…",
+ "docs":[{"index":3,"href":"OEBPS/text/p-003.xhtml","len":12345,"fnv":"9a3f01bc","ok":true,
+          "sents":[[s,e],…], "tokens":[[start,len,wid],…]}],
+ "words":[[orth,lemma,kana,kanaBase,ruby,free,kind,pos1,goshu],…]}
+```
+
+- **Offsets** are UTF-16 code units into the text of `epub_text.dom_text(xhtml)` — the concatenation of the body's text nodes minus ruby readings, which is what the phone's DOM walk sees. `len` is that text's UTF-16 length and `fnv` its `fnv1a_utf16`; the phone checks both before placing a token. `ok: false` means the document wasn't well-formed XML (the phone may disagree). `index` is the spine index foliate-js uses for its sections; `href` is the archive path.
+- **Tokens** are content *and* function words (punctuation is dropped), found per sentence in `dom_text.analysis` (a virtual newline at every block tag, so no token or sentence spans `<br>` or `</p><p>`) and mapped back with `span_to_dom`.
+- **Words** are interned per surface plus the whole row, because the reading varies by inflection and one orth/lemma can be both a particle and an adverb (より) or a free affix and a noun (方). `kana`/`kanaBase` are hiragana (surface and dictionary form). `ruby` is `[[base, reading], …]` covering the whole surface (`食べた` → `[["食","た"],["べた",""]]`), `[]` for kana-only words, the whole reading over the whole surface when alignment fails; it uses `analyze._align_readings(..., kanji_like=True)`, which also treats 々 and ヶ as kanji (the stats keep the narrow test). `free`: proper noun, numeral or affix. `kind`: `content` or `function`.
+- **Keys agree with the sentence index** — the Counter of content `orth` keys equals `wordlists/{id}.json`, because both come from `analyze.iter_tokens` + `word_def`. One known gap: source files with CRLF line endings keep a stray `\r` in `extract_text`, which sometimes makes MeCab tokenize a ruby-split sentence fragment differently; the pack follows the browser (`\r\n` → `\n`) and so differs by a few fragments (11 of 30,000 tokens in 星の王子さま, one book of 73 in the test library).
+- **The pack is profile-independent.** Word status is resolved on the phone from a vocab snapshot, so marking a word recolours the page offline.
+- **Cache:** `annotations/{id}.json.gz`, written atomically, rebuilt when the schema or the book's `sha256` changes. The first keys of the JSON are always `schema`, `book_id`, `sha256`, so `cached_header()` checks freshness from the first bytes without inflating the file. One build per book at a time (a second request waits, then reads the result).
+- **Adding a field** or changing how tokens are cut: bump `ANNOTATE_SCHEMA`; the ETag changes and the phone refetches.
+
+**Vocab snapshot** (`GET /api/reader/vocab`, `reader.snapshot`):
+
+- It is what the library scores against, so the page agrees with the Known %. `orth` is `known.load_sets`' orth set, which already includes `not_words` (so ignored words colour as known); `not_words` says which of them the phone shows as ignored. `lemma` is the lemma set. `exposure` is `known.exposure_counts` (orth → how many read books used it `exposure_min`+ times).
+- The phone applies `known.exposure_for`'s exclusion of the scored book's own contribution itself, from the pack's per-book counts and whether the book is read, so exposure is sent whole.
+- **Learning words are not known.** They are only in `learning`, never in `orth`.
+- **ETag** is a hash of the profile and the `(mtime_ns, size)` of `known_words.json`, `read_books.json` and `learning.json`, checked before the snapshot is built. Exposure also depends on the wordlists, which a re-analyze rewrites without touching those files, so the tag lags until the next mark or read toggle.
+- **Locking:** the GET routes take neither `_index_lock` (a stage run holds it for minutes) nor a reader lock. Every writer replaces its file atomically, so a read sees the old file or the new one. The writers use `_reader_lock` for learning, lookups and progress, and the mark routes' `_index_lock` for the known list.
+- `reader_progress.json` is keyed by stable key (`pairing.stable_key`), never `book_id`. `audio_progress.json` is keyed by `ab_id`.
+
+**Events** (`POST /api/reader/events`, `reader.py`):
+
+- **Validation is per event.** A bad event comes back in `rejected` (with its `id` when it has one) and the rest apply, because a 422 on the whole batch would leave the phone's outbox retrying it forever. Only the 1000-event cap is a 400.
+- **Status** collapses to the newest `ts` per orth (of equal ts, the later in the batch), then maps with one `known.apply`: `known` marks and un-sets-aside; `ignored` sets aside and drops a hand-marked entry; `unknown` and `learning` drop a hand-marked entry and any set-aside entry. A word has one status, so each also clears the others. `learning` is stored in `learning.json` only, never in the known list; a word leaves `learning.json` on any other status. The phone sends the token's **orth key** (orthBase), never the surface or the lemma.
+- **`skipped[]`** is every orth asked to be `unknown` or `learning` that is still known after the write, by its orth or its lemma: it came from an import, which this API never edits (`unmark` removes only hand-marked words). Such a word is not added to `learning.json`. Exposure is not checked, so a word known only through read books is not reported.
+- **One write, one recompute:** the batch's known-list changes and `recompute_moved` run once, in `asyncio.to_thread` under `_index_lock` (the lock the mark routes use); a batch that changes nothing in the known list does neither. Learning, lookups and progress then take `_reader_lock`. The two locks are never held together.
+- **Idempotent:** an existing learning entry keeps its `added_at`; lookups are appended once per `id` (read from the file each time); progress (reading, per stable key; audio, per `ab_id`) is last-write-wins by `ts`, so an older or equal event changes nothing. Statuses are not versioned across batches: replaying an *old* batch after a newer one for the same word would revert it. The phone sends in order and one batch at a time.
+- **`etag`** in the response is the new `GET /api/reader/vocab` tag, so the phone refetches the snapshot only when it differs from the one it holds.
+- Tests round-trip the pack's orth keys through the real tagger. `かもしれない` never comes out of the tagger as one token (it is か, も, しれる, ない), so the mark that matters for it is `しれる`.
+
+**Alignment** (`align.py`):
+
+- **Two ways in.** Upload an SRT made elsewhere, or run SubPlz here (`align_jobs`, below). Both end in `align.ingest_parts`, so the stored files and the served map are identical. A server without a GPU leaves `subplz_cmd` empty, and a long audiobook is transcribed on another machine (e.g. an Apple Silicon Mac) with `uv run cli.py align-remote <title or book_id>` (below), which uploads under the server's own `book_id` (it differs from the other machine's).
+- **Server-side run.** `[alignment] subplz_cmd` in the config is a template run once per audio file (the m4b, or each mp3 in play order), without a shell; `{audio}`, `{text}` and `{out}` are replaced, other braces are left alone. It must write an `.srt` into `{out}`; if it writes several, the one named after the audio wins. `{text}` is the book's sentences, one per line, so the cues come back as the sentences `match_cues` compares against. Example for the Apple Silicon fork (helica1/subplz-mac, outside this repo): `subplz sync --audio {audio} --text {text} --output-dir {out} --lang ja --model turbo --mlx --respect-grouping`. Not part of `BOOK_CHAIN`: only on request, one run at a time, never under `_index_lock`.
+- **From another machine.** `uv run cli.py align-remote <book> [--server URL]`, run on the machine with the GPU with `[alignment] subplz_cmd` in its own config. Without `--server` (or `server` in `~/.config/hondana/align.toml`) it uses the one server `discovery.browse` finds over Bonjour, and stops if it finds none or several. `<book>` is a server `book_id` or a title substring (ambiguous → the candidates are listed and it stops). It skips a `ready` book unless `--force`, then: `GET …/alignment/text` (the sentences and `X-Book-Sha256`; refused for `drm`/`not_ja`/`no_text`/`no_audiobook` before any audio moves), downloads the audio from `/download/audiobook/{ab_id}` (`?part=` per mp3) into `~/.cache/hondana/align/<host>/<book_id>/audio/` resuming with `Range` (`--audio PATH` / `--audio-dir DIR` use a copy already on the Mac, matched by file name; an m4b of another size than the server's is refused), runs `subplz_cmd` per file through `align_jobs.transcribe` (`out-NNN/` only on exit 0 and an SRT, so a retry skips finished files), and only when every file has an SRT uploads them all in **one** `POST …/alignment` with the sha. The server matches on arrival, so the Mac needs no matcher; `coverage`/`matched`/`total` are printed and the exit is non-zero when `ok` is false (the server still stores it; the transcripts are kept). A changed EPUB (`book_changed` 409, or a different sha at the next run) discards the transcripts, which were made from the old text; the downloaded audio is kept. `--missing` lists JP books with a local audiobook and `alignment.state == none` with hours and bytes to download, `--missing --run` aligns them one after another (a failure is logged and the next one runs), `--dry-run` starts nothing. Ctrl-C/SIGTERM stops SubPlz's process group, keeps the work dir and exits 130; `caffeinate -i -w <pid>` keeps a laptop awake. A finished run deletes its cache (`--keep-audio` keeps the audio). LAN only and no auth, like the rest of the API.
+- **Failure and resume.** Each file's SRT lands in `.work/{book_id}/out-NNN/` only when the command exited 0 and wrote an SRT, so a failed or cancelled run keeps the files already done and a retry skips them. Nothing is stored in `data/alignments/` until every file has one; `ingest_parts` restores the previous SRTs if matching fails, so a failure never changes an existing alignment. The command's output is in `.work/{book_id}/run.log` (its tail is the job's `error`). Job state is in memory: a server restart forgets it and terminates the process, but the work dir survives. A curated purge (`purge_book(curated=True)`) removes the work dir.
+- **Anchors are the pack's.** Sentence text comes from `annotate.sentence_texts`, which shares `annotate._sentence_spans` with `_build_doc`, so `sents[i]` is the pack's `sents[i]` and `fnv` is the pack document's. Change how sentences are cut in that one helper.
+- **Matching** is on the base text (NFKC, katakana folded to hiragana, only letters and numbers; ruby is already absent from `dom_text`; bracketed kana readings in a cue are dropped). A cue is searched for first just ahead of the previous match, then, if it is at least 8 characters, in the rest of the book (so unnarrated front matter is skipped). A sentence needs 50 % of its characters covered by matched cues, else `null`. **A hit more than `_TRUST_GAP` (120) characters past the cursor is believed only if one of the next two cues is found just behind it**, and of several equally good places the nearest wins: a short line the book repeats ("よろしくね") otherwise moved the cursor 90 sentences ahead and the rest of the book matched nothing (10 % coverage on a real 3,470-sentence book, 100 % after; `ALIGN_SCHEMA` 2 re-matched stored maps). Tuning constants are at the top of `align.py`.
+- **Per-part time.** For `mp3-folder` audiobooks time restarts at each mp3: the SRTs are stored per part, a row carries the part's file name (as in `/download/audiobook/{id}?part=`), and a sentence never runs across the join.
+- **Staleness.** The map records the `audiobook` it was made for and the book's `sha256`. A changed `sha256` or schema re-matches from the stored SRT on the next GET; a different linked audiobook is a 409, never a map that points at the wrong audio. No `_index_lock`: it writes only `data/alignments/`, one book at a time under a per-book lock.
+
+**Dictionaries** (`GET /api/reader/dicts[/{file}]`, `dicts.py`):
+
+- The server only hosts the user's own Yomitan zips from `dicts_dir` (config key, default `<data_dir>/dicts`); the phone imports them with hoshidicts. There is no server-side dictionary build.
+- **`kind`** comes from the bank files: `term_bank_N.json` is `term`, `kanji_bank_N.json` is `kanji`, `kanji_meta_bank_N.json` is `freq`, and a `term_meta_bank_N.json` is `freq` or `pitch` by the mode of its first bank's rows (`ipa` rows don't count). More than one kind is `mixed`. `format` falls back to the older `version` key.
+- **Cache:** a row is built once per `(mtime_ns, size)` of its zip, so the sha256 of a 40 MB zip is not recomputed per request; replacing or deleting a zip updates the next listing. The first listing after a new zip reads it (off the event loop).
+- **Download whitelist:** `dicts.find` serves a name only if it is a manifest row's `file`, the same idea as the mp3 `part` check, so `..`, absolute paths and subfolders cannot be asked for.
+
+
+## Reader profiles
+
+A profile (`epublib/profiles.py`) is just a slug, a display name, and a language
+("ja"/"en") — no auth. `data/profiles.json` holds the registry (`{"active": slug,
+"profiles": [...]}`) plus `data/users/<slug>/{known_words,known_stats,read_books}.json`
+per profile. Every other index (the EPUB/audiobook collection, vocab, pairing, series,
+genre) is shared across profiles and lives directly under `data/`.
+
+**Profile selection is per-device, not server-global.** Each browser carries its own
+choice in a `profile` cookie (`profiles.COOKIE_NAME`, set by `POST /api/profiles/active`,
+~5-year lifetime). Every request resolves its own `Config` via `server.py`'s
+`_request_cfg` dependency: `profiles.resolve_slug(cfg, cookie_value)` returns the cookie's
+slug if it names a real profile, else `data/profiles.json`'s `active` slug (the household
+default that follows whichever device last explicitly switched — so an unconfigured
+device isn't stuck on a stale choice), else the first registered profile. The module-level
+`cfg` singleton's own `active_user` is never read per-request — it only matters as the
+CLI's single-shot default (`cli.py`'s `_cfg()` calls `profiles.ensure_initialized` fresh
+each invocation) and as the server's pre-first-request placeholder.
+
+**`known` (per-book Known %/reading load) is computed at request time, not baked into
+`epub_library.json`.** `build.build()` is deliberately profile-independent; `GET
+/api/books` and `GET /api/books/{id}` overlay `known` from the resolving device's own
+`known_stats.json` onto a fresh copy of each book dict (never mutating the shared,
+mtime-cached library `_load_library()` returns — that cache is shared across every
+profile). This is what makes two devices on different profiles safe to browse
+simultaneously: switching one's profile no longer touches anything the other reads.
+`study.py` and `corpus.py` never depended on the baked field to begin with — they already
+recompute live from `cfg.known_words`/`cfg.read_books`, so passing them a request-scoped
+`Config` was enough to make them per-device correctly.
+
+**`GET /profile`** shows the resolving device's own profile: a compact identity row, the
+outcome line (how many unread books are low strain right now, from `/api/books`), known/exposed/books-read
+counts (from `known.status()`; the tiles link to `/known` and the explainer/list below), a folded plain-language explainer of the exposed-vocabulary
+mechanic above, and the list of books marked read. **One definition of "read":**
+`known.read_split(cfg, library)` splits `read_entries()` into books still in the library and
+marks whose `book_id` is gone; `summary()` (so `status()` and `/api/known-words`) reports
+`books_read` (live only) and `orphan_reads`, and `GET /api/profile/read-books` returns the same
+halves as `{books, orphans}`, so the tile, the grid and the "N are no longer in the library" line
+cannot disagree. An empty library index reads as "can't tell", not "all gone". `known.clear_orphan_reads()`
+(`DELETE /api/profile/orphan-reads`, behind the page's Clear button) drops only those marks for
+the requesting profile and recomputes; it uses the same "id not in the library" rule as `cli.py gc`
+ but touches nothing else. Orphaned marks add nothing to exposure unless an old wordlist
+survives for them (deleting a book purges its wordlist and every profile's read mark;
+older orphans stay until cleared here or by `cli.py gc --apply`).
+Reached from the sidebar's always-visible profile row (`.profile-view` in `nav.js`) — a
+direct link, separate from the `.profile-caret-btn` that opens the switch-profile menu.
+These used to be the same button, disambiguated only by whether the row you tapped in
+the menu happened to already be checked; that overload is why viewing your own profile
+used to require opening the switcher and tapping the already-active entry.
+
+## Edit mode (edit + delete; code name "manage")
+
+The **"Edit"** button (renamed from "Manage"; the code still says `manageMode`,
+`#manage-btn`, `.managing`) lives wherever an editable item is shown: `/` (solo book
+cards), `/audiobooks` (solo local audiobook cards), `/series` and `/audiobook-series`
+(volume rows). The grid pages carry no per-volume controls, so `/` and `/audiobooks`
+show them only on **solo** cards (an audiobook card only when its single volume is
+local); everything else is done from its series page. When active, each row/card shows
+its reversible **edit controls inline** and every **destructive action behind one ⋯
+menu** (`moreBtn()` + `openMenu()` in `ui.js`), so a delete is ⋯ → item → confirm
+dialog and never sits next to an edit button. The controls are one **`.edit-group`** — a rounded, theme-token-only pill of segmented buttons (opaque `--panel` fill, `--border`, accent on hover, so it follows light/dark and stays legible over any cover; top-right of a card's cover, end of a row's actions; hidden until `.managing`). Add a new edit control as another `<button>` inside the group, not as a freestanding one. The Edit toggle carries a pencil icon and becomes the coral gradient "✓ Done" in both themes (`.manage-btn.active` plus its `:hover` twin in `app.css`, because `.btn:hover` is more specific and would otherwise wipe the gradient under the cursor):
+- Library: a ⋯ on each **solo** book card (top-right, absolutely positioned), whose one
+  item is *Delete book…*. Series cards have none — deleting a whole series from a card
+  would be a footgun; its volumes are deleted individually on `/series`.
+- `/series` volume rows: ⋯ → *Delete book…*. `/audiobook-series` rows: ⋯ → *Remove from
+  library…* (every volume) and *Delete file…* (local volumes only, last, red).
+- `/series` additionally manages **the series as a whole**: a tools bar with *Rename series* (merges when the name exists), *Add a book…* (searchable picker of books outside the series; the book becomes the next volume) and a *Genre* select that sets every volume (reads "Mixed" when they differ); and per-volume ▲/▼ (two volumes with distinct numbers trade them, so labels like `1.5` survive; blank/equal numbers renumber the whole series `01…NN`), `#` (set the number — free text) and *Reset* (only on volumes whose `series_source` is `override`). Pair-inherited translations get no move controls. Every action is one request (see "Series management API") followed by a reload, so the page shows what the server derived
+- Choosing a delete item opens `confirmDialog()` (names the item, warns file deletion is permanent; focus starts on Cancel)
+- Confirming calls `DELETE /api/books/{id}` or `DELETE /api/audiobooks/{ab_id}`
+- Library solo cards and `/series` volume rows (EPUBs only, not audiobooks) also get a pencil
+  (`icon("edit")`) button (and the card a *Series* button), opening `promptDialog()` pre-filled with the current title.
+  Saving calls `POST /api/books/{id}/title`. Unlike delete, there is no confirmation step
+  (reversible — just edit again) and no "clear to revert" affordance in the UI (Save is a
+  no-op on an empty field) even though the endpoint itself supports clearing the override.
+
+**Dialogs, toasts, the Edit toggle and the ⋯ menu are shared (`ui.js`), not per page.** `confirmDialog({title, message, warning, confirmLabel, danger})` → `Promise<boolean>` and `promptDialog({title, fields:[{name,label,value,placeholder,required,type,max}], confirmLabel})` (`type` defaults to `text`; `date` gives the native picker, `max` its latest day) → `{name: value} | null` build their own native `<dialog>` (`showModal()`: the page behind goes inert, focus is trapped and returns to the opener; Escape, Cancel and a backdrop click all cancel; `required` fields use native validation), so templates carry no modal markup. `toast(message, "error"|"ok", {action})` is the non-blocking replacement for `alert()`; `action: {label, run, busyLabel}` adds one button (an Undo, for a change that is safely reversible — prefer it to a confirm): it disables and shows `busyLabel` while `run()` runs, then dismisses the toast, and a throwing `run` shows its message as an error toast. An action toast lasts 8 s and holds while hovered or focused. **Never use `alert()`/`confirm()`/`prompt()`.** `manageMode(container, button)` wires the Edit ⇄ Done button, toggles `.managing` on `container` and returns `{on}` for handlers to read. `moreBtn(attrs, label)` renders a row's ⋯ button (`attrs` = the `data-*` string the click handler reads; `label` is raw text, escaped inside) and `openMenu(btn, [{label, danger, run}])` opens its menu as a native `popover` (top layer, so no card clips it; Escape/outside-click/focus-return built in, arrow keys added); a page's delegated click handler builds the items from the button's dataset. Put any new destructive action there, not as another inline button. The label "Edit" lives in one default argument (plus each template's initial button text), so renaming it is a two-spot change.
+
+File-not-found on disk is treated as a warning (not a 500) — the index entry is still cleaned up. The edit-mode state is session-level only (not persisted in localStorage).
+
+## Pruning the audiobook catalog
+
+A base catalog built from an Audible account can list **everything the account ever owned** (thousands
+of rows), so a few hundred are books the reader will never open. Deleting a download doesn't remove one —
+`build_index()` emits a row per catalog ISBN, so a delete only flips `local` to false and
+the row stays forever as "Audible-only".
+
+Pruning is therefore a **suppression list**, `data/audiobook_hidden.json`, applied by
+`build_index()` at join time. It is deliberately *not* an edit to the base catalog file: that file
+is the immutable scrape output, so an edit would be undone by the next scrape, and
+keeping the prune separate makes it reversible.
+
+**Two distinct actions, deliberately not merged** (the `/audiobook-series` row's ⋯ menu
+offers both, in Edit mode):
+- *Delete file…* → `DELETE /api/audiobooks/{id}` — deletes the file, reclaims disk,
+  **permanent**. Only offered when there is a local file.
+- *Remove from library…* → `POST /api/audiobooks/hide` — hides the row, touches no file,
+  **reversible**. Offered for every volume, because the rows most worth pruning are the
+  ones that were never downloaded.
+
+They compose: delete to reclaim space, hide to stop seeing it. The shared confirm modal
+swaps its title/warning/button per action (`DIALOG_COPY` in `audiobook_series.js`) so the
+reversible one doesn't read as destructive.
+
+Bulk pruning lives on `/admin` ("Prune audiobooks"), which is the surface built for the
+real job — searching several hundred candidates and removing a batch. Each hide/unhide
+call runs `build_index → build` (no `xref` — hiding can't change which EPUB an audiobook
+matches, only the delete chain does that), so the UI still collects a selection and posts
+**once** rather than per row. The list caps rendering at 300 rows (2,900 checkboxes janks
+the page); the search box is how you reach the rest. A second card lists pruned titles
+with Restore.
+
+`admin.js`'s prune cards: rows are drawn 100 at a time with an append-only "Show 100 more" (one scroll box on a desktop, page flow on a phone). The selection is one global Set that survives a retyped filter, so it is always shown — a clearable "Selected (N)" chip beside the "Showing x of y matching" count — with "Select all N matching" and shift-click ranges. On a phone a `.prune-dock` (last child of the card, `position: sticky; bottom: 0`) carries "N selected" + Remove while anything is ticked, since the toolbar's own Remove is thousands of pixels above the end of the list; the run-order numbers stay on phones too. Remove (a secondary button — it is reversible) confirms by naming the first three titles, then offers an Undo toast; Restore does the same. A removal updates the lists locally (`rowCache` holds the full rows pruned this visit) rather than refetching the catalog. Each list has loading / failed (a `status-err` well with Retry) states, and a failed refresh keeps the last good list under an error toast.

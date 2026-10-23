@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <!-- include: head title="Editions — Hondana" -->
+  <link rel="stylesheet" href="/static/pair.css">
+</head>
+<body class="layout">
+  <a class="skip-link" href="#pair-main">Skip to the lists</a>
+  <!-- include: shell active=pair -->
+    <header>
+      <div class="header-row">
+        <!-- include: header title="Editions" -->
+      </div>
+    </header>
+
+    <main class="pair-main" id="pair-main" tabindex="-1" aria-busy="true">
+      <p id="note" class="pair-note" role="status" hidden></p>
+      <div id="loadError"></div>
+      <p id="pairStatus" class="sr-only" role="status"></p>
+
+      <section aria-labelledby="decideH">
+        <h2 id="decideH">Needs a decision <span id="unpairedCount" class="muted"></span></h2>
+        <p class="section-hint">Each Japanese book here shares an author with an unpaired English book. Compare opens the Japanese book's page, where you say whether they're the same book.</p>
+        <ul id="suggestions" class="pair-list"><li class="no-cands">Loading…</li></ul>
+      </section>
+
+      <section aria-labelledby="pairsH">
+        <h2 id="pairsH">Linked pairs <span id="pairCount" class="muted"></span></h2>
+        <ul id="pairs" class="pair-list"><li class="no-cands">Loading pairs…</li></ul>
+      </section>
+
+      <section id="blockedSection" hidden>
+        <details id="blockedBox">
+          <summary><h2>Blocked pairs <span id="blockedCount" class="muted"></span></h2><span class="mi chev" aria-hidden="true">expand_more</span></summary>
+          <p class="no-cands">You unlinked these, so they stay apart: the scanner won't pair them again and they aren't suggested. Allow pairing lifts the block.</p>
+          <ul id="blocked" class="pair-list"></ul>
+        </details>
+      </section>
+
+      <section id="noneSection" hidden>
+        <details id="noneBox">
+          <summary><h2>No other edition <span id="noneCount" class="muted"></span></h2><span class="mi chev" aria-hidden="true">expand_more</span></summary>
+          <p class="no-cands">You said these have no other edition, so the scanner skips them and they aren't suggested. Look for an edition lifts that.</p>
+          <ul id="none" class="pair-list"></ul>
+        </details>
+      </section>
+    </main>
+
+    <script src="/static/pair.js"></script>
+    <script src="/static/nav.js"></script>
+  </div>
+
+</body>
+</html>

@@ -1,0 +1,409 @@
+.book-wrap {
+  padding: 24px;
+  max-width: 860px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+@media (max-width: 639px) { .book-wrap { padding: 14px; } }
+.book-hero { flex-wrap: wrap; }
+.book-head { flex: 1; display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.book-meta { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+/* The chips belong to the title block, not the gap above the downloads (app.css gives .chips
+   margin-top:auto, which floated them mid-card when the cover is taller than the text). */
+.book-hero .chips { margin-top: 0; }
+.vol-nav { display: flex; flex-wrap: wrap; gap: 0 16px; }
+.vol-nav:empty { display: none; }
+.vol-link { color: var(--accent-ink); text-decoration: none; display: inline-flex; align-items: center; gap: 2px; min-height: 32px; font-weight: 700; font-size: 0.78rem; white-space: nowrap; }
+.vol-link:hover { text-decoration: underline; }
+.vol-link .mi { font-size: 1.15em; }
+.book-title { font-size: 1.5rem; line-height: 1.3; }
+/* Japanese display text: Noto Sans JP after Baloo, so Han glyphs never fall back to a Chinese
+   font on a device without Hiragino (STYLE §3). Titles break at phrase boundaries, balanced,
+   so a closing 」 can't be left alone on a line; "Vol 01" never splits, and the "·" before it
+   stays with the series name rather than starting a line. */
+.layout .book-title, .book-author, .book-series-line, .ab-caption, .series-table td.t {
+  font-family: 'Baloo 2', 'Noto Sans JP', 'Hanken Grotesk', sans-serif;
+}
+.book-title { text-wrap: balance; line-break: strict; }
+.book-title:lang(ja) { word-break: auto-phrase; }
+.vol-no { white-space: nowrap; }
+/* The header's "Book" once the hero's title is the page's h1 (demotePageTitle): h1 look, no heading. */
+.header-row .page-title { margin: 0; font: 700 1.6rem 'Baloo 2', 'Hanken Grotesk', sans-serif; color: var(--text); }
+/* 404 / load failure: the dashed well (STYLE §5) with the way back, not a red line. */
+.not-found { display: flex; flex-direction: column; align-items: flex-start; gap: 10px; padding: 22px; }
+.not-found .error-title { margin: 0; font: 700 1.1rem 'Baloo 2', 'Hanken Grotesk', sans-serif; color: var(--text); }
+.not-found p { margin: 0; }
+.no-vocab.not-found { border-color: color-mix(in srgb, var(--text) 35%, transparent); }  /* the dashed --border vanishes in dark */
+.not-found .btn { text-decoration: none; display: inline-flex; align-items: center; gap: 6px; min-height: 36px; }
+.book-author { font-size: 0.9rem; }
+.book-author a { color: inherit; text-decoration: none; }
+.book-author a, .book-series-line a { display: inline-block; padding-block: 6px; margin-block: -6px; }
+.book-author a:hover { color: var(--accent-ink); text-decoration: underline; }
+.book-imprint { font-size: 0.78rem; color: var(--muted); }
+.book-synopsis p { margin: 0; font-size: 0.86rem; line-height: 1.7; color: var(--text); white-space: pre-line; }
+.synopsis-source { margin-top: 8px; font-size: 0.78rem; color: var(--muted); }
+.book-series-line { font-size: 0.82rem; color: var(--muted); }
+/* On the dark hero gradient --muted falls under 4.5:1. */
+body.dark .book-series-line { color: rgba(255, 255, 255, 0.78); }
+body.dark .book-hero .readout-label { color: rgba(255, 255, 255, 0.74); }
+.book-series-line strong { color: var(--text); }
+.book-series-line a { text-decoration: none; }
+.book-series-line a:hover strong { color: var(--accent-ink); text-decoration: underline; }
+.book-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 4px; }
+/* What the audiobook slot stands for (renderAbCaption), under the downloads. */
+.ab-caption { display: flex; align-items: center; gap: 5px; font-size: 0.78rem; color: var(--muted); min-width: 0; }
+/* Inside the downloads row, under the files; on a phone the Read toggle drops below it. */
+.book-actions .ab-caption { flex: 1 0 100%; order: 1; }
+.book-actions .read-btn, .book-actions .read-hint { order: 0; }
+.ab-caption .mi { font-size: 1.15em; flex: none; }
+
+/* The audiobook-link section at the foot of the Edit dialog (#180). */
+.bd-audiobook { border-top: 2px solid var(--border); padding-top: 14px; }
+.bd-section-title { margin: 0 0 8px; font: 700 0.69rem 'Space Mono', monospace; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
+.ab-line { font-size: 0.9rem; line-height: 1.5; }
+.ab-line .ab-meta { color: var(--muted); font-size: 0.8rem; }
+.ab-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+.ab-btn { font-size: 0.8rem; padding: 6px 12px; }
+.ab-picker { margin-top: 12px; }
+.ab-picker input {
+  width: 100%; box-sizing: border-box; font: inherit; font-size: 0.875rem;
+  padding: 8px 10px; border-radius: 8px;
+  border: 1px solid var(--border); background: var(--panel2); color: var(--text);
+}
+.ab-results { list-style: none; margin: 8px 0 0; padding: 0; max-height: 280px; overflow-y: auto; }
+.ab-results li { border-top: 1px solid var(--border); }
+.ab-results button {
+  all: unset; box-sizing: border-box; display: block; width: 100%; cursor: pointer;
+  padding: 8px 6px; font-size: 0.85rem; line-height: 1.4;
+}
+.ab-results button:hover, .ab-results button:focus-visible { background: var(--panel2); }
+.ab-results button:focus-visible { outline-offset: -2px; }
+.ab-results .ab-meta { color: var(--muted); font-size: 0.75rem; }
+.ab-results button:disabled { cursor: default; background: var(--panel2); }
+.ab-tag { margin-left: 8px; padding: 1px 7px; border-radius: 8px; border: 1px solid var(--border); font-size: 0.68rem; font-weight: 700; color: var(--muted); white-space: nowrap; }
+.ab-note { color: var(--muted); font-size: 0.8rem; margin-top: 8px; }
+
+.stats-card h2 { margin: 0 0 6px; }
+/* The corpus card's title is a plain span: a heading inside <summary> made one run-on name. */
+.vocab-title { font: 700 1.05rem 'Baloo 2', 'Hanken Grotesk', sans-serif; color: var(--text); }
+/* A card's room while it loads (series, study list). */
+.card-pending { min-height: 160px; color: var(--muted); font-size: 0.85rem; }
+#study-pending { min-height: 420px; }
+/* The corpus table is a disclosure: the card shows its gist, the 11 rows open on demand. */
+.vocab-details > summary { cursor: pointer; list-style: none; display: grid; grid-template-columns: 1fr auto; align-items: baseline; column-gap: 12px; }
+.vocab-details > summary::-webkit-details-marker { display: none; }
+
+.vocab-details > summary::after { content: "Show details"; grid-row: 1; grid-column: 2; font-size: 0.78rem; color: var(--muted); }
+.vocab-details[open] > summary::after { content: "Hide details"; }
+.vocab-details .vocab-gist { grid-column: 1 / -1; margin-top: 4px; font-size: 0.82rem; color: var(--muted); }
+.vocab-details[open] > summary { margin-bottom: 10px; }
+.stats-card .hint { margin: 0 0 14px; max-width: 58ch; color: var(--muted); font-size: 0.78rem; line-height: 1.5; }
+.stats-card .hint a { color: var(--accent-ink); }
+.stats-table { width: 100%; border-collapse: collapse; font-size: 0.875rem; }
+.stats-table td { padding: 7px 8px; border-top: 1px solid var(--border); }
+.stats-table tr:first-child td { border-top: none; }
+.stats-table td:first-child { color: var(--muted); }
+.stats-table td:last-child { text-align: right; font-variant-numeric: tabular-nums; }
+.stats-table .section td {
+  text-align: left;
+  color: var(--accent-ink);
+  font-size: 0.72rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding-top: 14px;
+}
+.approx { color: var(--muted); font-size: 0.72rem; }
+.mini-meter {
+  display: inline-block;
+  width: 90px;
+  height: 6px;
+  border-radius: 3px;
+  background: var(--panel2);
+  margin-right: 8px;
+  vertical-align: middle;
+  overflow: hidden;
+}
+.mini-meter i { display: block; height: 100%; background: var(--accent); }
+
+/* Reading load panel inside the hero: full width under the cover + title.
+   The load bar itself is shared (hero.css). */
+.book-hero .readout { flex: 1 0 100%; max-width: none; }
+/* Stand-in for the readout on a book outside the profile's language. */
+.lang-note { gap: 10px; }
+.lang-note-text { margin: 0; font-size: 0.86rem; line-height: 1.5; }
+body.dark .lang-note-text { color: rgba(255, 255, 255, 0.88); }
+.lang-action { align-self: flex-start; }
+.read-hint { flex: 1 1 100%; font-size: 0.78rem; line-height: 1.4; color: var(--muted); }
+body.dark .read-hint { color: rgba(255, 255, 255, 0.65); }
+
+.read-btn { font-size: 0.85rem; padding: 9px 16px; }
+
+/* Study path: the curve, then the word list with example sentences. Linked as
+   #study-card from /next; the margin keeps its heading clear of the sticky header. */
+#study-card { scroll-margin-top: 84px; }
+.curve-table td { vertical-align: middle; }
+.curve-table .curve-sub-row td { padding-top: 0; font-size: 0.8rem; color: var(--muted); border-top: none; }
+/* Hero chips are functional text, not captions: 12px (the chip default is 10.9px). */
+.book-hero .chips .chip { font-size: 0.75rem; }
+.curve-table td:nth-child(2) { width: 46%; }
+.curve-table td:last-child { text-align: left; white-space: nowrap; }
+.curve-table tr.step td { background: var(--surface-2, rgba(127, 127, 127, 0.07)); }
+.curve-flag { margin-left: 4px; font-size: 0.7rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
+.study-lead { margin: 0 0 8px; max-width: 65ch; font-size: 0.95rem; line-height: 1.5; }
+.study-band.s-low   { color: #2d7451; }
+.study-band.s-some  { color: #8b5c1b; }
+.study-band.s-high  { color: #a54556; }
+.study-band.s-heavy { color: #a3342b; }
+body.dark .study-band.s-low   { color: #8fd6a8; }
+body.dark .study-band.s-some  { color: #e0b878; }
+body.dark .study-band.s-high  { color: #f0a6b0; }
+body.dark .study-band.s-heavy { color: #f0b0a6; }
+
+.study-wrap { max-height: 460px; overflow-y: auto; margin-top: 12px; }
+.study-table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+.study-table td { padding: 9px 8px; border-top: 1px solid var(--border); vertical-align: top; }
+.study-table tr:first-child td { border-top: none; }
+.study-word { white-space: nowrap; font-size: 0.95rem; }
+.study-reading { color: var(--muted); font-size: 0.72rem; margin-top: 2px; }
+.study-n {
+  color: var(--muted);
+  font-size: 0.78rem;
+  text-align: right;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.study-ex { color: var(--text); line-height: 1.7; }  /* the sentence you read to decide: full ink (STYLE §13) */
+.study-ex mark { background: transparent; color: var(--accent-ink); font-weight: 600; }
+.study-mark { width: 1%; text-align: right; white-space: nowrap; }
+.study-mark .skip-btn { margin-right: 4px; }
+
+.no-vocab {
+  color: var(--muted);
+  background: var(--panel2);
+  border: 1px dashed var(--border);
+  border-radius: 12px;
+  padding: 14px 16px;
+  font-size: 0.85rem;
+  line-height: 1.55;
+}
+
+/* Positioned so the header's absolutely placed .sr-only "Download" is clipped by this
+   scroller; otherwise its containing block is <body> and it widens the phone page by ~220px. */
+.series-table-wrap { overflow-x: auto; position: relative; }
+.series-table { width: 100%; border-collapse: collapse; font-size: 0.82rem; white-space: nowrap; }
+.series-table th {
+  text-align: left;
+  color: var(--muted);
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--border);
+}
+.series-table td { padding: 7px 8px; border-top: 1px solid var(--border); font-variant-numeric: tabular-nums; }
+.series-table tr:first-child td { border-top: none; }
+.series-table .chip.strain { font-size: 0.7rem; }
+.series-table td.t { max-width: 320px; overflow: hidden; text-overflow: ellipsis; }
+.series-table .t-short { display: none; }
+.series-table.no-load .c-load { display: none; }
+/* Phone (#195): volumes are rows (Vol, title without the series name it repeats, strain,
+   download), not a 622px table in a 330px scroller; the columns that barely vary between
+   volumes (known, language, words, unique, difficulty, Natively) stay on wider screens.
+   Titles wrap, balanced and at phrase boundaries, rather than ellipsising away the subtitle. */
+@media (max-width: 639px) {
+  .series-table-wrap { overflow: visible; }
+  .series-table, .series-table tbody { display: block; white-space: normal; }
+  .series-table thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+  .series-table tr {
+    display: grid;
+    grid-template-columns: 2.4em minmax(0, 1fr) auto auto;
+    align-items: center;
+    column-gap: 10px;
+    padding: 6px 4px;
+    border-top: 1px solid var(--border);
+  }
+  .series-table tr:first-child { border-top: none; }
+  .series-table td { display: block; padding: 0; border-top: none; }
+  .series-table .c-more { display: none; }
+  .series-table td.t { max-width: none; min-width: 0; white-space: normal; text-wrap: balance; line-break: strict; overflow: visible; }
+  .series-table td.t a:lang(ja) { word-break: auto-phrase; }
+  .series-table .t-full { display: none; }
+  .series-table .t-short { display: inline; }
+}
+.series-table a { color: var(--text); text-decoration: none; }
+.series-table a:hover { color: var(--accent-ink); }
+.series-table tr.current { background: color-mix(in srgb, var(--accent) 9%, transparent); }
+.series-table tr.current td.t a { color: var(--accent-ink); font-weight: 600; }
+
+
+/* Phone study list: each word is a card, the example sentence on its own full-width line
+   under it (it was a ~6-character column), and the list flows with the page instead of
+   scrolling inside it. */
+@media (max-width: 639px) {
+  /* The curve: step and verdict on one line, its bar under them. */
+  .curve-table, .curve-table tbody { display: block; }
+  .curve-table tr {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    grid-template-areas: "n read" "bar bar";
+    column-gap: 12px; row-gap: 6px;
+    padding: 8px;
+    border-top: 1px solid var(--border);
+  }
+  .curve-table tr.section, .curve-table tr.curve-sub-row { display: block; border-top: none; padding: 0; }
+  .curve-table td { display: block; padding: 0; border-top: none; width: auto; }
+  .curve-table td:nth-child(1) { grid-area: n; }
+  .curve-table td:nth-child(2) { grid-area: bar; width: auto; }
+  .curve-table td:last-child { grid-area: read; white-space: normal; }
+  .curve-table tr.section td, .curve-table tr.curve-sub-row td { grid-area: auto; }
+}
+@media (max-width: 639px) {
+  .study-wrap { max-height: none; overflow: visible; }
+  .study-table, .study-table tbody { display: block; }
+  .study-table tr {
+    display: grid;
+    grid-template-columns: 1fr auto auto;
+    grid-template-areas: "word n mark" "ex ex ex";
+    align-items: center;
+    column-gap: 10px;
+    padding: 10px 0;
+    border-top: 1px solid var(--border);
+  }
+  .study-table tr:first-child { border-top: none; }
+  .study-table td { display: block; padding: 0; border-top: none; }
+  .study-word { grid-area: word; }
+  .study-n { grid-area: n; }
+  .study-mark { grid-area: mark; width: auto; }
+  .study-ex { grid-area: ex; margin-top: 6px; }
+}
+
+/* Tap targets (STYLE §13: >= 32px on phones): the hero's chips, and the inline author and
+   series links, which would otherwise be 17-21px tall. */
+@media (max-width: 639px) {
+  .book-hero .chips .chip { min-height: 32px; display: inline-flex; align-items: center; }
+  .book-author a, .book-series-line a { padding-block: 8px; margin-block: -8px; }
+  .series-table .dl-btn { min-width: 32px; min-height: 32px; }
+}
+
+/* Study list in pages and a closing downloads row: phone only (the list scrolls in place on
+   wider screens, where the page is not nine thousand pixels tall). */
+.study-more, .book-end { display: none; }
+@media (max-width: 639px) {
+  .study-table tr.beyond { display: none; }
+  .study-more { display: inline-flex; align-items: center; gap: 6px; min-height: 40px; margin-top: 10px; }
+  .book-end { display: block; padding: 14px; border: 2px solid var(--border); border-radius: 18px; background: var(--panel); }
+}
+
+/* Phone layout of the hero (must follow the base rules). The cover sits beside only the
+   title block; chips, downloads and the Read toggle run full width underneath, so the
+   cover column has no dead space below it. */
+@media (max-width: 639px) {
+  .book-hero { display: grid; grid-template-columns: 96px 1fr; align-items: start; gap: 14px; padding: 14px; }
+  .book-head { display: contents; }
+  .book-meta { grid-column: 2; }
+  .book-hero .chips, .book-actions, .ab-caption, .book-hero .readout { grid-column: 1 / -1; }
+  .book-actions .dl-btn { flex: 1 1 0; min-width: 0; }
+  .book-actions .dl-note { flex: 1 1 0; min-width: 0; }
+  .book-actions .read-btn { flex: 1 0 100%; order: 2; }
+  .book-title { font-size: 1.25rem; }
+}
+
+/* Edit details dialog (wireDetails in book.js): a wider .modal-box that scrolls on small screens. */
+.modal-box.bd-modal { max-width: 560px; max-height: 88vh; gap: 0; padding: 0; overflow: hidden; }
+/* Header and the Save bar stay put; only the form and the audiobook block scroll between them. */
+.bd-modal-head { padding: 18px 24px 12px; border-bottom: 1px solid var(--border); }
+.bd-scroll { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 16px 24px; display: flex; flex-direction: column; gap: 14px; }
+.bd-modal-foot { padding: 12px 24px; border-top: 1px solid var(--border); background: var(--panel); }
+.bd-modal-foot:empty { display: none; }
+.ab-apply { margin: 0 0 8px; font-size: 0.78rem; color: var(--muted); }
+.bd-modal-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.bd-modal-head .modal-title { font-family: 'Baloo 2', 'Hanken Grotesk', sans-serif; font-size: 1.05rem; }
+
+/* Marking read (#272): the cover bumps and a check is pressed onto its corner, then peels
+   away. Same moves as the known-words card (app.css); a fixed dark green with white reads in both themes. */
+.book-cover.bump { animation: cover-bump 0.45s cubic-bezier(0.16, 1, 0.3, 1); }
+@keyframes cover-bump { 35% { transform: scale(1.04); } }
+.cover-stamp {
+  position: absolute; top: -9px; right: -9px;
+  width: 32px; height: 32px;
+  display: grid; place-items: center;
+  border-radius: 50%;
+  background: #2d7451; color: #fff;  /* fixed, not --ok-ink: that lightens in dark mode */
+  font-size: 16px;
+  box-shadow: 0 3px 8px -2px rgba(0, 0, 0, 0.4);
+  pointer-events: none;
+  animation: cover-stamp 1.8s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+@keyframes cover-stamp {
+  0%   { opacity: 0; transform: scale(1.8) rotate(-18deg); }
+  15%  { opacity: 1; transform: rotate(-6deg); }
+  75%  { opacity: 1; transform: rotate(-6deg); }
+  100% { opacity: 0; transform: translateY(-6px) rotate(-6deg); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .book-cover.bump { animation: none; }
+  /* The stamp still appears (it carries the news); it just doesn't move. */
+  .cover-stamp { animation-name: cover-stamp-still; }
+  @keyframes cover-stamp-still { 0%, 75% { opacity: 1; transform: rotate(-6deg); } 100% { opacity: 0; transform: rotate(-6deg); } }
+}
+
+/* The other edition (edition.js). The well under the hero asks one question about one candidate:
+   a neutral well (STYLE §12), not an alert. Yes is the secondary button; coral stays on the EPUB. */
+.edition-well {
+  background: var(--panel);
+  border: 2px solid var(--border);
+  border-radius: 12px;
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 10px;
+}
+.ed-q { margin: 0; font: 700 1.05rem 'Baloo 2', 'Hanken Grotesk', sans-serif; color: var(--text); }
+.ed-book { display: flex; align-items: center; gap: 12px; min-width: 0; color: inherit; text-decoration: none; }
+.ed-cover { width: 44px; height: 64px; flex: none; object-fit: cover; border-radius: 6px; background: var(--panel2); }
+.ed-cover--none { display: flex; align-items: center; justify-content: center; color: var(--muted); }
+.ed-meta { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.ed-title { font: 700 0.95rem 'Baloo 2', 'Noto Sans JP', 'Hanken Grotesk', sans-serif; overflow-wrap: anywhere; }
+.ed-author { font-size: 0.8rem; color: var(--muted); overflow-wrap: anywhere; }
+.ed-book:hover .ed-title { color: var(--accent-ink); text-decoration: underline; }
+.ed-signal { font-size: 0.78rem; color: var(--muted); }
+.edition-well .ed-signal { margin-top: -4px; font-weight: 700; color: var(--text); }
+.ed-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; }
+.ed-actions .btn { min-height: 36px; }
+/* A choosing task happens on a phone: Yes takes the full width, the two quiet answers sit under it, all 44px. */
+@media (max-width: 639px) {
+  .edition-well { padding: 14px; }
+  .ed-actions { align-self: stretch; }
+  .ed-actions .btn { flex: 1 0 100%; min-height: 44px; }
+  .ed-actions .ghost-btn { flex: 1 1 auto; min-height: 44px; }
+}
+
+/* …and the Edit dialog's card: the current pairing, the possible matches, the by-hand picker. */
+.bd-edition .ed-cover { width: 36px; height: 52px; }
+.ed-sub { margin: 14px 0 0; font-size: 0.8rem; color: var(--muted); }
+.ed-cands { list-style: none; margin: 4px 0 0; padding: 0; }
+.ed-cand-row { display: flex; align-items: center; gap: 4px 10px; flex-wrap: wrap; padding: 8px 0; border-top: 1px solid var(--border); }
+.ed-cand-row .ed-book { flex: 1 1 200px; }
+
+/* The Audio sync card (audio_sync.js, #370). */
+.sync-card[hidden] { display: none; }
+.sync-card h2:focus { outline: none; }
+.sync-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.sync-line { margin: 0 0 6px; font-size: 0.9rem; line-height: 1.5; }
+.sync-line .mi { vertical-align: -0.2em; font-size: 1.2em; }
+.sync-ok { color: var(--ok-ink, #1b7f4b); }
+.sync-warn { color: var(--danger-ink); }
+.sync-err { margin: 6px 0; font-size: 0.85rem; color: var(--danger-ink); overflow-wrap: anywhere; white-space: pre-wrap; max-height: 8em; overflow: auto; }
+.sync-how { margin: 6px 0 8px; font-size: 0.85rem; color: var(--muted); }
+.sync-cmd { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.sync-cmd code {
+  flex: 1 1 18rem; min-width: 0; padding: 8px 10px; border-radius: 8px; background: var(--panel2);
+  border: 1px solid var(--border); font: 0.8rem/1.4 'Space Mono', monospace; overflow-wrap: anywhere; user-select: all;
+}
+@media (max-width: 639px) {
+  .sync-card .ab-btn, .sync-card .row-menu-btn { min-height: 44px; }
+}
+.ab-note a, .sync-how a { color: var(--accent-ink); }

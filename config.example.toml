@@ -1,0 +1,88 @@
+# Copy to config.toml and edit for your machine (see docs/configuration.md).
+# `cli.py --config PATH` (or EPUB_LIBRARY_CONFIG) picks another file, and
+# EPUB_LIBRARY_ENV=<name> picks config.<name>.toml when that file exists.
+# All paths may be absolute or relative to the repo root (this directory).
+
+# Folder that holds your .epub files (scanned recursively).
+epub_dir = "./books"
+
+# Where generated indices and extracted covers are written.
+data_dir = "./data"
+
+# Folder of your own Yomitan dictionary zips (Jitendex, a monolingual dictionary,
+# Kanjium pitch, frequency lists). The server hosts them to the Hondana iOS
+# reader, which imports them. Personal and often not redistributable, so keep
+# the folder out of git. Defaults to <data_dir>/dicts.
+# dicts_dir = "./data/dicts"
+
+# Optional base layer of the audiobook catalog: a JSON object keyed by Audible
+# ASIN. Leave it absent to start empty; the `catalog` stage then pulls a row for
+# every `[ASIN]` in your audiobook file names into data/audiobook_catalog_extra.json.
+audiobook_data = "./data/audiobook_catalog_base.json"
+
+# Natively difficulty data for the audiobook catalog (filled by `enrich-audiobooks`).
+audiobook_natively = "./data/natively_levels.json"
+
+# Roots scanned for local audiobook files. The FIRST entry is the canonical
+# root — `cli.py consolidate` moves everything into it. Extra entries are only
+# needed while the collection is still split across locations.
+audiobook_dirs = [
+  "/path/to/Audiobook Collection",
+]
+
+# Web server bind address. 0.0.0.0 exposes it on your LAN.
+host = "0.0.0.0"
+port = 8000
+
+[natively]
+# Seconds between learnnatively.com requests (be polite).
+delay = 0.4
+# Minimum title-similarity (0-1) to accept an item match.
+min_score = 0.55
+
+[pairing]
+# Minimum title-similarity (0-1) to auto-pair an EN and JP edition.
+min_score = 0.5
+
+[xref]
+# Minimum title/series-similarity (0-1) to link an audiobook.
+min_score = 0.62
+
+[alignment]
+# Audio↔text sync: the command that aligns ONE audio file to the book's
+# text and writes an .srt into {out}. {audio} is the audio file, {text} a
+# one-sentence-per-line .txt of the book, {out} an empty folder. Run without a
+# shell, once per file (an mp3 folder runs it per mp3). Not part of the
+# automatic chain; empty = "generate" says so instead of running. Example with
+# the Apple Silicon fork (helica1/subplz-mac), installed outside this project:
+#   subplz_cmd = "/path/to/subplz-mac/.venv/bin/subplz sync --audio {audio} --text {text} --output-dir {out} --lang ja --model turbo --mlx --respect-grouping"
+# Without a GPU (or MLX) a long audiobook takes hours: leave this empty on that
+# server and run `cli.py align-remote <book> --server http://...` on a machine
+# that has the GPU (set subplz_cmd in ITS config); /api/books/{id}/alignment
+# also takes an SRT made any other way.
+subplz_cmd = ""
+
+[discovery]
+# Hondana for iPhone finds the server over Bonjour (`_hondana._tcp`) while
+# `cli.py serve` runs; /profile also shows the address and a QR code. Set
+# enabled = false to stop advertising.
+enabled = true
+# Behind a reverse proxy (host = "127.0.0.1") nothing is advertised unless you
+# say which port the PROXY listens on, e.g. 80. Leave unset when the app binds
+# the LAN itself: the bind port is announced.
+# advertise_port = 80
+# A proxy that only serves one Host name (nginx `server_name`) refuses the
+# advert's own `<name>-hondana.local`. Name the one it answers to and the app
+# connects to that instead, e.g. "books.local".
+# advertise_host = "books.local"
+
+[data_mirror]
+# Off-machine backup of the hand-curated data/ files (profiles, known words,
+# read books, and the pairing/series/genre/title overrides + audiobook prune
+# list — see epublib/data_mirror.py), none reliably backed up otherwise, to a
+# private git repo, via `cli.py push`. Turn it on only on the machine that
+# holds your real library: the files are keyed to its book_ids.
+# See docs/running-a-server.md#backups.
+publish = false
+# Local clone of the private repo that `cli.py push` commits into.
+# path = "/path/to/hondana-backup"

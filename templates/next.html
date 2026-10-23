@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <!-- include: head title="Read Next — Hondana" -->
+  <link rel="stylesheet" href="/static/hero.css">
+  <link rel="stylesheet" href="/static/next.css">
+</head>
+<body class="layout">
+  <!-- include: shell active=next -->
+    <header>
+      <div class="header-row">
+        <!-- include: header title="Read Next" h1id=page-title -->
+        <!-- Mobile-only: folds the filter row away (nav.js/app.css); no-op above 639px. -->
+        <button type="button" class="btn toolbar-toggle" id="toolbar-toggle" aria-label="Filters" title="Filters" aria-expanded="false" aria-controls="controls">
+          <span class="mi" aria-hidden="true">tune</span>
+        </button>
+      </div>
+      <div class="controls" id="controls">
+        <div class="filter-toggles">
+          <label class="chk"><input type="checkbox" id="hideRead" checked> Hide books I've read</label>
+          <label class="chk"><input type="checkbox" id="allSeriesBooks"> Show all books in series</label>
+          <label class="chk"><input type="checkbox" id="pairedOnly"> Show paired books only</label>
+        </div>
+      </div>
+    </header>
+
+    <div class="next-wrap" id="next-wrap">
+      <p class="hint">Easiest first, measured against your known words: fewest hard sentences (two or more
+        unknown words) in ten, then fewest new words to learn. <span id="count"></span></p>
+
+      <div id="hero" class="top-row"></div>
+
+      <section class="queue" aria-labelledby="queue-heading">
+        <h2 class="queue-heading" id="queue-heading" hidden>Up next</h2>
+        <div id="queue"></div>
+      </section>
+    </div>
+
+    <div id="tip" hidden></div>
+
+    <script src="/static/next.js"></script>
+    <script src="/static/nav.js"></script>
+  </div>
+
+</body>
+</html>

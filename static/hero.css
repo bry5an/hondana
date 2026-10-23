@@ -1,0 +1,270 @@
+/* Night hero shared by /next and /series (hero card, vocabulary readout panel, stat tiles).
+   Page-specific variants stay in next.css / series.css. */
+
+.book-hero {
+  position: relative;
+  overflow: hidden;
+  display: flex;
+  gap: 22px;
+  background: linear-gradient(135deg, var(--panel) 45%, #fff0f4);
+  border: 2px solid var(--border);
+  border-radius: 22px;
+  padding: 20px 22px;
+  box-shadow: 0 4px 0 var(--card-shadow);
+}
+
+body.dark .book-hero {
+  background: linear-gradient(135deg, #43306d, #2a2142);
+  border-color: #4f3f7e;
+  box-shadow: 0 8px 0 #130e20;
+}
+
+/* Two soft glows behind the content. */
+.book-hero::before, .book-hero::after {
+  content: "";
+  position: absolute;
+  border-radius: 50%;
+  pointer-events: none;
+}
+
+.book-hero::before {
+  right: -50px; top: -60px; width: 320px; height: 320px;
+  background: radial-gradient(circle, rgba(255, 109, 158, 0.2), transparent 68%);
+}
+
+.book-hero::after {
+  left: 120px; bottom: -110px; width: 260px; height: 260px;
+  background: radial-gradient(circle, rgba(255, 158, 109, 0.14), transparent 70%);
+}
+
+body.dark .book-hero::before { background: radial-gradient(circle, rgba(255, 109, 158, 0.4), transparent 68%); }
+
+body.dark .book-hero::after  { background: radial-gradient(circle, rgba(123, 74, 166, 0.45), transparent 70%); }
+
+.book-hero > * { position: relative; z-index: 1; }
+
+.book-cover {
+  flex: 0 0 168px;
+  align-self: flex-start;
+  aspect-ratio: 3 / 4;
+  background: var(--panel2);
+  border-radius: 12px;
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 14px 26px -10px rgba(0, 0, 0, 0.5);
+}
+
+.book-cover img { width: 100%; height: 100%; object-fit: cover; border-radius: 12px; }
+
+.book-cover .placeholder { color: var(--muted); font-size: 2.4rem; }
+
+.hero-main { display: flex; flex-direction: column; gap: 10px; }
+
+.book-title { margin: 0; font-size: 1.7rem; line-height: 1.2; }
+
+.book-author { color: var(--muted); font-size: 0.82rem; margin-top: 3px; }
+
+body.dark .book-title { color: #fff; }
+
+body.dark .book-hero .chip { background: rgba(255, 255, 255, 0.14); color: #fff; }
+
+/* Vocabulary readout panel: 2×2 stat tiles + coverage meter. */
+.readout {
+  /* Grows into the spare width beside the title block (capped so the tiles
+     don't get silly-wide on very large screens). */
+  flex: 1 1 262px;
+  max-width: 460px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 14px;
+  background: var(--panel2);
+  border-radius: 16px;
+  padding: 14px;
+}
+
+body.dark .readout { background: rgba(255, 255, 255, 0.07); }
+
+.stat-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+
+.stat-grid > div { border-radius: 12px; padding: 9px 12px; min-width: 0; }
+
+body.dark .stat-grid > div { background: rgba(255, 255, 255, 0.08); }
+
+.stat-label {
+  font: 700 0.66rem 'Space Mono', ui-monospace, monospace;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.stat-val {
+  font: 800 1.25rem/1.1 'Baloo 2', 'Hanken Grotesk', sans-serif;
+  white-space: nowrap;
+}
+
+.stat-val small { font-size: 0.65rem; font-weight: 700; margin-left: 3px; }
+
+body.dark .stat-grid .st-cost   { color: #c9a6f0; }
+
+body.dark .stat-grid .st-known  { color: #eec27a; }
+
+.book-hero .chips { gap: 7px; }
+
+.book-hero .chips:empty { display: none; }
+
+/* Readout label and tile colours: /next, /series (labels, tiles) and /book. */
+.readout-label {
+  font: 700 0.66rem 'Space Mono', ui-monospace, monospace;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+}
+body.dark .readout-label { color: rgba(255, 255, 255, 0.55); }
+/* Ink on each tint is >= 4.5:1 (labels are 0.66rem, so large-text leniency doesn't apply). */
+.stat-grid .st-cost   { background: #e6dcf2; color: #7b4aa6; }
+.stat-grid .st-known  { background: #f6e3c9; color: #875713; }
+
+/* Meter-style label row; /series' strain strip (series.js) is its one user. */
+.meter-labels { display: flex; justify-content: space-between; gap: 8px; }
+.meter-labels {
+  font: 700 0.66rem 'Space Mono', ui-monospace, monospace;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+}
+body.dark .readout .meter-labels { color: rgba(255, 255, 255, 0.62); }
+
+/* Load bar (loadBarHtml in ui.js): sentences with no unknown word / one / two or
+   more, stacked. /book's reading-load card, /next's readouts and queue rows. */
+.load-bar {
+  display: flex;
+  height: 12px;
+  border-radius: 8px;
+  overflow: hidden;
+  background: var(--panel2);
+}
+.load-bar--sm { height: 8px; }
+.load-bar i { display: block; height: 100%; }
+.load-bar .f, .load-legend i.k.f { background: var(--ok); }
+.load-bar .i, .load-legend i.k.i { background: var(--warn); }
+.load-bar .h, .load-legend i.k.h { background: var(--danger); }
+.load-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 18px;
+  margin-top: 10px;
+  font-size: 0.78rem;
+  color: var(--muted);
+}
+.load-legend b { color: var(--text); font-variant-numeric: tabular-nums; }
+.load-legend i.k {
+  display: inline-block;
+  width: 9px;
+  height: 9px;
+  border-radius: 2px;
+  margin-right: 6px;
+}
+.readout .load-legend { font-size: 0.74rem; }
+body.dark .readout .load-legend { color: rgba(255, 255, 255, 0.7); }
+body.dark .readout .load-legend b { color: #fff; }
+
+/* Reading-load readout in the hero: the verdict in words, the load bar, then
+   what it would take to make the book comfortable. The verdict's ink is the
+   strain bucket's (STYLE §10), so the word and its colour always agree. */
+.readout .load-verdict { margin: 0; font-size: 0.86rem; line-height: 1.45; }
+.load-verdict b {
+  display: block;
+  margin-bottom: 2px;
+  font: 800 1.3rem/1.15 'Baloo 2', 'Hanken Grotesk', sans-serif;
+}
+.load-verdict b.s-low   { color: #2d7451; }
+.load-verdict b.s-some  { color: #8b5c1b; }
+.load-verdict b.s-high  { color: #a54556; }
+.load-verdict b.s-heavy { color: #a3342b; }
+body.dark .load-verdict b.s-low   { color: #8fd6a8; }
+body.dark .load-verdict b.s-some  { color: #e0b878; }
+body.dark .load-verdict b.s-high  { color: #f0a6b0; }
+body.dark .load-verdict b.s-heavy { color: #f0b0a6; }
+body.dark .readout .load-verdict { color: rgba(255, 255, 255, 0.88); }
+.load-cost { margin: 0; font-size: 0.8rem; line-height: 1.45; color: var(--muted); }
+.load-cost b { color: var(--text); font-variant-numeric: tabular-nums; }
+body.dark .readout .load-cost { color: rgba(255, 255, 255, 0.7); }
+body.dark .readout .load-cost b { color: #fff; }
+
+/* The reading-load readout drawn by loadReadoutHtml() (ui.js): /book's hero and /add's result.
+   Verdict + load bar on the left, the two figures they don't say on the right. A size container
+   (STYLE principle 5): the split needs ~600px of its own width, which a laptop window with the
+   sidebar open doesn't give it until ~960px, so it stacks by its width, not the viewport's. */
+.readout--load { container: load-readout / inline-size; }
+.load-split { display: grid; grid-template-columns: 3fr 2fr; gap: 14px 28px; align-items: start; }
+/* The verdict carries the colour here (band ink above); the figures beside it are
+   neutral so a green tile can never sit next to a "High strain" verdict. */
+:is(.readout--load, .readout--neutral) .stat-grid > div { background: var(--panel); color: var(--text); }
+:is(.readout--load, .readout--neutral) .stat-grid .stat-label { color: var(--muted); }
+body.dark :is(.readout--load, .readout--neutral) .stat-grid > div { background: rgba(255, 255, 255, 0.08); color: #fff; }
+body.dark :is(.readout--load, .readout--neutral) .stat-grid .stat-label { color: rgba(255, 255, 255, 0.72); }
+/* /series: the same neutral tiles; only the Strain value is inked, in its bucket's colour. */
+.readout--neutral .stat-val.s-low   { color: #2d7451; }
+.readout--neutral .stat-val.s-some  { color: #8b5c1b; }
+.readout--neutral .stat-val.s-high  { color: #a54556; }
+.readout--neutral .stat-val.s-heavy { color: #a3342b; }
+body.dark .readout--neutral .stat-val.s-low   { color: #8fd6a8; }
+body.dark .readout--neutral .stat-val.s-some  { color: #e0b878; }
+body.dark .readout--neutral .stat-val.s-high  { color: #f0a6b0; }
+body.dark .readout--neutral .stat-val.s-heavy { color: #f0b0a6; }
+.load-main { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+/* Padded past a 32px target (STYLE §13) without moving the text. */
+.readout-how summary { cursor: pointer; font-size: 0.74rem; color: var(--muted); width: fit-content; padding-block: 9px; margin-block: -9px; }
+body.dark .readout-how summary { color: rgba(255, 255, 255, 0.6); }
+.readout--load .readout-how .readout-note { margin-top: 6px; max-width: 60ch; }
+.readout--load .readout-note { font-size: 0.75rem; line-height: 1.5; color: var(--muted); margin: 0; max-width: 75ch; }
+/* Labels and units in the reading-load panel sit above the 11px floor. */
+.readout--load .stat-label, .readout--load .readout-label { font-size: 0.7rem; }
+.readout--load .stat-val small { font-size: 0.7rem; }
+.readout--load .readout-note .approx { font-size: inherit; }
+body.dark .readout--load .readout-note, body.dark .readout--load .readout-note .approx { color: rgba(255, 255, 255, 0.6); }
+/* Stacked: the verdict and load bar, then the two figures side by side under them. */
+@container load-readout (max-width: 600px) {
+  .load-split { grid-template-columns: 1fr; }
+}
+
+/* Strain strip (strainStrip() in ui.js; /series' readout, /add's batch ending): one bar per
+   volume, coloured by strain bucket (same palette as the .chip.strain buckets); read = filled,
+   unread = outlined. */
+.meter-labels { display: flex; justify-content: space-between; gap: 8px; }
+.strip-key { display: inline-flex; align-items: center; gap: 4px; }
+.strip-key i { display: inline-block; width: 8px; height: 8px; border-radius: 2px; margin-left: 4px; }
+.strip-key .key-read { background: currentColor; }
+.strip-key .key-unread { border: 1.5px solid currentColor; }
+.strip-bars { display: flex; align-items: stretch; gap: 4px; height: 64px; margin-top: 6px; }
+.strip-col {
+  flex: 1 1 0;
+  max-width: 64px;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  align-items: stretch;
+  gap: 3px;
+  text-decoration: none;
+}
+.strip-col span {
+  font: 700 0.66rem 'Space Mono', ui-monospace, monospace;
+  color: var(--muted);
+  text-align: center;
+  overflow: hidden;
+}
+body.dark .strip-col span { color: rgba(255, 255, 255, 0.55); }
+.strip-bar { border-radius: 4px 4px 2px 2px; --c: #2f7a55; border: 1.5px solid var(--c); }
+.strip-bar.read { background: var(--c); }
+.strip-bar.s-low   { --c: #2f7a55; }
+.strip-bar.s-some  { --c: #a06a1f; }
+.strip-bar.s-high  { --c: #b04a5c; }
+.strip-bar.s-heavy { --c: #a3342b; }
+body.dark .strip-bar.s-low   { --c: #8fd6a8; }
+body.dark .strip-bar.s-some  { --c: #e0b878; }
+body.dark .strip-bar.s-high  { --c: #f0a6b0; }
+body.dark .strip-bar.s-heavy { --c: #f0b0a6; }
+.strip-bar.none { height: 4px; border: 1.5px dashed var(--border); }
+a.strip-col:hover .strip-bar { filter: brightness(1.15); }
+

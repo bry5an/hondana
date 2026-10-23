@@ -1,0 +1,120 @@
+
+.book-head {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 14px;
+  min-width: 0;
+}
+.book-meta { color: var(--muted); font-size: 0.78rem; margin-top: 2px; }
+body.dark .book-author, body.dark .book-meta { color: rgba(255, 255, 255, 0.65); }
+
+/* "Next up": the first unread volume, with its downloads. */
+.next-up { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.next-up-label {
+  font: 800 0.72rem 'Baloo 2', 'Hanken Grotesk', sans-serif;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  /* Ink, not --accent: coral is 2.4:1 on the light hero; on the dark one a lighter tint. */
+  color: var(--accent-ink);
+}
+body.dark .next-up-label { color: #ff9ebf; }
+.next-up-title {
+  color: var(--text);
+  font-weight: 700;
+  font-size: 0.9rem;
+  text-decoration: none;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.next-up-title:hover { color: var(--accent); }
+/* One line under the title when an easier volume exists (series.js gentlerHint). */
+.next-up-hint { font-size: 0.78rem; font-weight: 700; color: var(--accent-ink); text-decoration: none; }
+.next-up-hint:hover { text-decoration: underline; }
+body.dark .next-up-hint { color: #ff9ebf; }
+/* A skipped volume number in the list. */
+.vol-gap { color: var(--muted); font-size: 0.78rem; text-align: center; padding: 6px 12px; border: 1px dashed var(--border); border-radius: 12px; }
+body.dark .next-up-title { color: #fff; }
+.book-actions { display: flex; flex-wrap: wrap; gap: 9px; margin-top: 2px; }
+
+.readout-label, .meter-labels {
+  font: 700 0.72rem 'Space Mono', ui-monospace, monospace;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+}
+body.dark .readout-label, body.dark .meter-labels { color: rgba(255, 255, 255, 0.55); }
+.readout-note { font-size: 0.7rem; color: var(--muted); margin-top: -6px; }
+body.dark .readout-note { color: rgba(255, 255, 255, 0.55); }
+
+/* Type floor (STYLE §3: nothing under 11px). hero.css and app.css set these a notch
+   smaller for every page, so /series lifts its own. */
+.stat-label, .strip-col span, .strip-key { font-size: 0.72rem; }
+.stat-val small { font-size: 0.72rem; }
+.series-vols .chip, .book-hero .chip { font-size: 0.72rem; }
+
+/* ── Phone layout (same breakpoint as app.css's off-canvas sidebar) ── */
+
+/* Phone layout of the hero (shared rules; they must come after this page's base rules). */
+@media (max-width: 639px) {
+  .book-hero { flex-wrap: wrap; gap: 14px; padding: 14px; }
+  .book-cover { flex-basis: 96px; }
+  .book-head { flex: 1 1 0; }
+  .book-title { font-size: 1.25rem; }
+  .readout { flex: 1 0 100%; max-width: none; }
+  /* EPUB + audiobook buttons share one row in the narrow column beside the
+       cover: equal halves, tighter padding, text never wraps. */
+  .book-actions { flex-wrap: nowrap; gap: 7px; }
+  .book-actions .dl-btn {
+      flex: 1 1 0;
+      min-width: 0;
+      padding: 8px 6px;
+      font-size: 0.74rem;
+      gap: 4px;
+    }
+}
+
+/* ── Edit mode: manage the series as a whole (#79) ─────────────
+   Hidden until the page is `.managing`, like the per-volume edit buttons and ⋯ menu. */
+.vols-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+.vols-head h3 { margin: 12px 0 0; }
+.series-tools { display: none; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
+.managing .series-tools { display: flex; }
+.series-genre { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); font-size: 0.78rem; }
+.series-genre select {
+  background: var(--panel);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 5px 8px;
+  font: inherit;
+  max-width: 12rem;
+}
+
+.vol-move .mi { font-size: 1.1rem; transform: rotate(90deg); }  /* ← becomes ↑, → becomes ↓ */
+
+/* Phone volume rows (app.css wraps .queue-actions on /series at this breakpoint): 40px
+   downloads, and in Edit mode the ↑ ↓ # ✎ ⋯ pill takes its own full-width row under them,
+   so it can't squeeze EPUB / Audible, with 44px targets. */
+@media (max-width: 639px) {
+  /* The row's downloads are 40px targets, as on /next's queue (the "no audiobook" note stays a short line). */
+  .series-vols .queue-actions .dl-btn { min-height: 40px; }
+  .series-vols .queue-actions .dl-btn--none { flex: 0 0 auto; padding: 0 4px; min-height: 0; }
+  .series-vols .queue-actions .edit-group { flex: 1 1 100%; }
+  .series-vols .queue-actions .edit-group > button { flex: 1 1 0; min-width: 44px; min-height: 44px; }
+}
+
+/* "Add a book…" picker */
+.pick-box { width: min(32rem, 92vw); }
+.pick-list { list-style: none; margin: 10px 0; padding: 0; max-height: 50vh; overflow-y: auto; }
+.pick-item {
+  display: flex; flex-direction: column; gap: 1px; width: 100%;
+  text-align: left; background: none; border: 0; border-radius: 8px;
+  padding: 7px 8px; color: var(--text); font: inherit; cursor: pointer;
+}
+.pick-item:hover, .pick-item:focus-visible { background: var(--bg, rgba(127, 127, 127, 0.12)); }
+.pick-item:focus-visible { outline-offset: -2px; }
+.pick-title { font-weight: 600; font-size: 0.88rem; }
+.pick-sub, .pick-empty { color: var(--muted); font-size: 0.75rem; }
+.pick-empty { padding: 8px; }

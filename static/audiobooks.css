@@ -1,0 +1,39 @@
+/* Audiobooks pages: the grid at /audiobooks and the volume list at
+   /audiobook-series. Card, chip and volume-row basics come from app.css —
+   only what differs from an EPUB lives here. */
+
+.grid { grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); }
+
+/* Audiobook art is square, not a book cover. */
+.ab-card .cover, .series-hero.audio .cover { aspect-ratio: 1 / 1; }
+
+.chip.have-all { color: var(--en); border-color: var(--en); }
+.chip.have-some { color: var(--accent); border-color: var(--accent); }
+.chip.have-none { color: var(--ja); border-color: var(--ja); }
+
+/* A folder of MP3 tracks expands in place rather than opening a page. */
+.tracks { flex-shrink: 0; }
+.tracks summary {
+  cursor: pointer;
+  font-size: 0.7rem;
+  color: var(--en);
+  padding: 2px 7px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--panel2);
+  user-select: none;
+}
+.tracks a {
+  display: block;
+  font-size: 0.7rem;
+  color: var(--text);
+  padding: 2px 0 2px 12px;
+  text-decoration: none;
+}
+.tracks a:hover { color: var(--accent); }
+
+/* Phones: two series per row. Must live here — the minmax(180px) rule above
+   loads after app.css and would otherwise undo app.css's 2-up phone grid. */
+@media (max-width: 639px) {
+  .grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}

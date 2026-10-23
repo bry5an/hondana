@@ -1,0 +1,1991 @@
+/* ── Playful Shelf light theme (design direction 1b) ── */
+:root {
+  --bg: #fbf6ec;
+  --panel: #ffffff;
+  --panel2: #f3ece0;
+  --text: #2c2340;
+  --muted: #766752;
+  --accent: #ff6d9e;
+  /* Text on the coral gradient / an --accent fill is ink, never white: white on
+     coral is 2.0–2.65:1, ink is 5.6–7.3:1 (STYLE.md §2). Same in both themes,
+     because the gradient is. */
+  --on-accent: #2c2340;
+  /* Accent as *text* (links) on a light surface; --accent itself is 2.65:1 on
+     white, so it stays for fills, rings and borders. */
+  --accent-ink: #c2255c;
+  --violet-ink: #7b4aa6;   /* purple text/icons: exposed words, the explainer (chips still hard-code it) */
+  --violet-bg: #e6dcf2;
+  --ja: #a06a1f;
+  --en: #2f7a55;
+  --border: #efe4d2;
+  --sidebar-w: 238px;
+  --sidebar-bg: #2c2340;
+  --accent1: #ff9e6d;
+  --accent2: #ff6d9e;
+  --card-shadow: #efe4d2;
+  /* Status colours (STYLE.md §2). --danger-ink is the one for *text* on a light
+     surface; the others are fills, borders and dots. */
+  --ok: #7ec699;
+  --warn: #e2b96f;
+  --danger: #f28b82;
+  --danger-ink: #b04a5c;
+  /* --ok as *text* or a glyph: the §10 green ink (--ok itself is ~2:1 on white). */
+  --ok-ink: #2d7451;
+}
+
+* { box-sizing: border-box; }
+
+/* The hidden attribute always hides. The browser's own [hidden] rule loses to any
+   author `display`, so a `.card { display: flex }` used to keep a hidden card on
+   screen (#241). Don't restate [hidden] per selector (STYLE.md §13). */
+[hidden] { display: none !important; }
+
+/* Keyboard focus (STYLE.md §13): one ring for every interactive element —
+   buttons, links, summary, seg pills. Don't set `outline: none` on a control;
+   a hover/active fill alone is not a focus indicator. Text inputs keep their
+   accent border and also get the ring. */
+/* The ring is --accent-ink, not --accent: coral is ~2.5:1 on the cream canvas, ink is ~5:1. */
+:focus-visible { outline: 2px solid var(--accent-ink); outline-offset: 2px; }
+.sidebar :focus-visible { outline-color: #fff; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+}
+
+/* ── Layout ──────────────────────────────────────────────────── */
+
+body.layout {
+  display: flex;
+  height: 100dvh;
+  overflow: hidden;
+}
+
+.sidebar {
+  width: var(--sidebar-w);
+  flex: 0 0 var(--sidebar-w);
+  display: flex;
+  flex-direction: column;
+  height: 100dvh;
+  overflow-y: auto;
+  /* The desktop collapse is instant: animating width/padding re-lays-out the
+     whole page every frame (STYLE.md §13 animates transform/opacity only). The
+     phone drawer below slides with transform. */
+  z-index: 20;
+}
+
+/* Padding must go too: with border-box a width:0 box still can't be narrower
+   than its padding, so the Playful Shelf `.sidebar` padding left a 20px strip. */
+.sidebar.collapsed {
+  width: 0;
+  flex: 0 0 0;
+  padding-left: 0;
+  padding-right: 0;
+  overflow: hidden;
+  border-right: none;
+  /* Out of the tab order. */
+  visibility: hidden;
+}
+
+.sidebar-brand {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  padding: 8px 6px 18px;
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.nav-links {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+}
+
+.nav-link {
+  display: flex;
+  align-items: center;
+  text-decoration: none;
+  font-size: 0.875rem;
+  white-space: nowrap;
+  transition: background 0.15s;
+}
+
+.nav-icon { flex-shrink: 0; }
+
+.main-col {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  height: 100dvh;
+  overflow-y: auto;
+}
+
+.header-row {
+  display: flex;
+  align-items: center;
+  margin-bottom: 10px;
+}
+
+.header-row h1 { margin: 0; }
+
+.nav-toggle {
+  min-width: 36px;
+  min-height: 36px;
+  flex-shrink: 0;
+  font-size: 1rem;
+  line-height: 1;
+  cursor: pointer;
+  padding: 5px 8px;
+  transition: background 0.15s;
+}
+/* Phone: the drawer toggle is a 44px target (the desktop header keeps its compact one). */
+@media (max-width: 639px) { .nav-toggle { min-width: 44px; min-height: 44px; } }
+
+.overlay {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  z-index: 15;
+}
+
+/* ── Mobile (<640px): sidebar is a fixed drawer ──────────────── */
+
+@media (max-width: 639px) {
+  body.layout { display: block; height: auto; overflow: visible; }
+
+  .sidebar {
+    position: fixed;
+    top: 0;
+    left: 0;
+    height: 100%;
+    transform: translateX(-100%);
+    width: var(--sidebar-w);
+    flex: unset;
+    box-shadow: 4px 0 24px rgba(0, 0, 0, 0.5);
+    /* Closed: out of the tab order once the slide-out has finished. */
+    visibility: hidden;
+    /* override collapsed — on mobile it's always full-width when open */
+    transition: transform 0.22s ease, visibility 0s linear 0.22s;
+  }
+
+  .sidebar.collapsed {
+    width: var(--sidebar-w);
+    padding: 8px 10px;
+    overflow: visible;
+    border-right: 1px solid var(--border);
+  }
+
+  /* After .collapsed so a desktop-collapsed sidebar still opens as a drawer.
+     Visible immediately on open (no delay) so the slide-in plays. */
+  .sidebar.open {
+    transform: translateX(0);
+    visibility: visible;
+    transition: transform 0.22s ease;
+  }
+
+  .overlay.visible { display: block; }
+
+  .main-col { height: auto; overflow-y: visible; }
+}
+
+header {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  padding: 12px 16px;
+}
+
+h1 { margin: 0 0 10px; }
+
+.controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.controls input[type="search"] {
+  flex: 1 1 200px;
+  min-width: 160px;
+}
+
+.controls input, .controls select {
+  color: var(--text);
+  font-size: 0.95rem;
+}
+
+.controls .num input { width: 56px; }
+.controls label { color: var(--muted); font-size: 0.85rem; display: flex; align-items: center; gap: 4px; }
+.controls .chk input, .controls .num input { margin: 0 2px; }
+
+.count { color: var(--muted); font-size: 0.8rem; margin-top: 8px; }
+
+.grid {
+  display: grid;
+}
+
+.card {
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.cover {
+  aspect-ratio: 2 / 3;
+  background: var(--panel2);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+.cover img { width: 100%; height: 100%; object-fit: cover; }
+.cover .placeholder { color: var(--muted); font-size: 2rem; }
+
+/* Volume count for a series, over the corner of its cover. */
+.series-badge {
+  position: absolute;
+  line-height: 1;
+}
+
+.card-body { display: flex; flex-direction: column; flex: 1; }
+.title { font-size: 0.9rem; font-weight: 600; line-height: 1.25; }
+.author { font-size: 0.78rem; }
+
+.chips { display: flex; flex-wrap: wrap; gap: 4px; margin-top: auto; }
+.chip {
+  font-size: 0.68rem;
+}
+
+/* ── Uniform grid card ───────────────────────────────────────────
+   Every card in the grid is the same shape and one column wide, so covers,
+   chips and card bottoms line up across the whole row. The cover is
+   aspect-ratio'd off a column width that is identical for every card, so the
+   card height falls out of fixing the three body rows: a title that always
+   occupies two lines, a one-line author, and two rows' worth of chips.
+   A line clamp alone does NOT reserve the space — the explicit heights are
+   what make a one-line title as tall as a two-line one. */
+
+.card .cover { position: relative; }
+
+.card .title {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  height: 2.5em;          /* 2 × line-height */
+}
+
+.card .author {
+  height: 1.3em;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/* Fixed chip height is what makes the two-row .chips box exact. */
+.card .chip {
+  display: inline-flex;
+  align-items: center;
+  height: 20px;
+}
+.card .chips {
+  height: 44px;           /* 2 × 20px + 4px gap */
+  align-content: flex-start;
+  overflow: hidden;
+}
+.chip.lang-ja { border-color: var(--ja); }
+.chip.lang-en { border-color: var(--en); }
+.chip.level { border-color: var(--accent); }
+.chip.pair { border-color: #c89bf0; }
+
+/* ── Links into the book detail page ─────────────────────────── */
+
+.title-link, .cover-link { color: inherit; text-decoration: none; }
+.title-link:hover { color: var(--accent); }
+
+.chip.diff { border-color: var(--warn); }
+.chip.known { border-color: var(--en); }
+/* Strain: share of sentences with 2+ unknown words — the primary signal. */
+.chip.strain { border-color: #f0968f; }
+.chip.read { border-color: var(--ok); }
+/* A chip that is a link says so: dotted underline, where a plain chip is only a label. */
+a.chip { text-decoration: underline dotted; text-underline-offset: 3px; }
+
+/* ── Volume manage buttons (series detail pages) ─────────────────
+   Volume rows themselves are .queue-row, defined at the end of this file. */
+
+/* ── Series detail pages (/series, /audiobook-series) ────────── */
+
+.series-page { padding: 24px; max-width: 1100px; }
+@media (max-width: 639px) { .series-page { padding: 14px; } }
+
+/* /add and /known: the form-width page wrap (STYLE.md §5, 760px). */
+.add-wrap {
+  padding: 24px;
+  max-width: 760px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+@media (max-width: 639px) { .add-wrap { padding: 14px; } }
+
+/* ── Dropzone (STYLE.md §9): a <label for> around an .sr-only file input, so Tab reaches
+   the picker and Enter/Space or a click anywhere opens it. /add and /known. The form
+   around it is a .dz-host: below 540px of it the button takes a row of its own. ── */
+.dropzone {
+  position: relative;  /* anchors the visually hidden file input */
+  border: 2.5px dashed #d9b8a0;
+  border-radius: 18px;
+  background: var(--panel);
+  padding: 20px 22px;
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+}
+body.dark .dropzone { border-color: #55486e; }
+.dropzone:hover, .dropzone.drag-over {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 6%, var(--panel));
+}
+/* The input is .sr-only (still focusable); its ring is drawn on the whole zone. */
+.dropzone:has(input:focus-visible) {
+  outline: 2px solid var(--accent-ink);
+  outline-offset: 2px;
+  border-color: var(--accent);
+}
+.dz-tile {
+  width: 70px;
+  height: 70px;
+  flex: none;
+  border-radius: 16px;
+  background: linear-gradient(135deg, var(--accent1), var(--accent2));
+  display: grid;
+  place-items: center;
+  box-shadow: 0 3px 0 #d94f82;  /* the primary's hard shadow (STYLE §7), not a glow */
+}
+/* Upload glyph: Material, like every other icon (STYLE §13). */
+.dz-arrow { font-size: 2rem; color: var(--on-accent); }
+.dz-text { flex: 1; min-width: 0; }
+.dz-title, .dz-sub { display: block; }
+.dz-title {
+  font: 700 1.05rem/1.3 'Baloo 2', 'Hanken Grotesk', sans-serif;
+  color: var(--text);
+}
+.dz-sub { font-size: 0.76rem; color: var(--muted); margin-top: 4px; }
+/* "Drop" only where a pointer can hover and a file can be dragged in; touch gets "Choose". */
+.only-hover { display: none; }
+@media (hover: hover) {
+  .only-hover { display: inline; }
+  .no-hover { display: none; }
+}
+.dz-browse {
+  flex: none;
+  min-height: 40px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  background: var(--sidebar-bg);
+  color: #fff;
+  /* In dark the fill is the panel's own colour (1.01:1): the edge keeps it a button. */
+  border: 1.5px solid transparent;
+  font: 700 0.82rem 'Baloo 2', 'Hanken Grotesk', sans-serif;
+  padding: 10px 19px;
+  border-radius: 16px;
+}
+body.dark .dz-browse { border-color: rgba(255, 255, 255, 0.4); }
+.dz-host { container: dropzone / inline-size; }
+@container dropzone (max-width: 540px) {
+  .dropzone { flex-wrap: wrap; }
+  .dz-browse { flex: 1 1 100%; text-align: center; }
+}
+
+.series-hero {
+  display: flex;
+  gap: 18px;
+  align-items: flex-start;
+}
+
+.series-hero .cover {
+  flex: 0 0 130px;
+  aspect-ratio: 2 / 3;
+  border-radius: 8px;
+}
+.series-hero.audio .cover { aspect-ratio: 1 / 1; }
+
+.series-hero-body { min-width: 0; flex: 1; }
+.series-hero h2 { margin: 0 0 6px; font-size: 1.15rem; line-height: 1.3; }
+.series-hero .author { color: var(--muted); font-size: 0.85rem; margin-bottom: 4px; }
+.series-hero .meta { color: var(--muted); font-size: 0.8rem; }
+.series-hero .chips { margin-top: 10px; }
+
+.back-link {
+  display: inline-block;
+  margin-bottom: 12px;
+  color: var(--muted);
+  text-decoration: none;
+  font-size: 0.85rem;
+}
+.back-link:hover { color: var(--accent); }
+
+.series-vols {
+  margin-top: 18px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 4px 16px 12px;
+}
+.series-vols h3 {
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--muted);
+  margin: 12px 0 0;
+}
+
+.empty-msg { color: var(--muted); padding: 24px 16px; }
+
+/* `/` with nothing to show (an empty library, or filters that hide every book): the callout well. */
+.lib-empty {
+  grid-column: 1 / -1;
+  max-width: 560px;
+  color: var(--muted);
+  background: var(--panel2);
+  border: 1px dashed var(--border);
+  border-radius: 12px;
+  padding: 14px 16px;
+  font-size: 0.85rem;
+  line-height: 1.55;
+}
+.lib-empty strong { color: var(--text); }
+.lib-empty a { color: var(--accent-ink); }
+
+/* `/`'s first-run checklist (#373): a shelf card above the grid while a required step is open. */
+.setup-card {
+  background: var(--panel);
+  border: 2px solid var(--border);
+  border-radius: 18px;
+  box-shadow: 0 4px 0 var(--card-shadow);
+  padding: 22px;
+  margin: 18px 16px 0;
+  max-width: 760px;
+}
+.setup-card .card-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.setup-card h2 { font-family: "Baloo 2", sans-serif; font-size: 1.05rem; margin: 0 0 6px; }
+.setup-card .hint { color: var(--muted); font-size: 0.85rem; margin: 0 0 12px; }
+.setup-steps { list-style: none; margin: 0; padding: 0; }
+.setup-step {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 0;
+  border-top: 1px solid var(--border);
+}
+.setup-mark {
+  flex: none;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  border: 2px solid var(--border);
+  display: grid;
+  place-items: center;
+  color: #fff;
+}
+.setup-mark .mi { font-size: 16px; }
+.setup-step.done .setup-mark { background: var(--accent); border-color: var(--accent); }
+.setup-text { flex: 1; min-width: 0; font-size: 0.88rem; }
+.setup-text strong { color: var(--text); }
+.setup-detail { display: block; color: var(--muted); font-size: 0.8rem; margin-top: 2px; }
+.setup-opt {
+  margin-left: 8px;
+  font-family: "Space Mono", monospace;
+  font-size: 0.69rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.setup-step .ghost-btn { flex: none; display: inline-flex; align-items: center; gap: 4px; }
+@media (max-width: 639px) {
+  .setup-card { margin: 12px 12px 0; padding: 14px; }
+  .setup-step { flex-wrap: wrap; }
+  .setup-step .ghost-btn { margin-left: 36px; min-height: 44px; }
+}
+
+/* ── Table view (compare vocab stats across the library) ─────── */
+
+.grid.table-mode { display: block; }
+
+.table-wrap { overflow-x: auto; }
+
+.lib-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.82rem;
+  white-space: nowrap;
+}
+.lib-table th {
+  text-align: left;
+  cursor: pointer;
+  user-select: none;
+  color: var(--muted);
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--border);
+  position: sticky;
+  top: 0;
+  background: var(--bg);
+}
+.lib-table th:hover { color: var(--text); }
+.lib-table th.asc::after, .lib-table th.desc::after { font-family: "Material Symbols Rounded"; font-feature-settings: "liga"; vertical-align: middle; color: var(--accent); }
+.lib-table th.asc::after { content: "arrow_upward"; }
+.lib-table th.desc::after { content: "arrow_downward"; }
+
+.lib-table td {
+  padding: 6px 10px;
+  border-top: 1px solid var(--border);
+  font-variant-numeric: tabular-nums;
+}
+.lib-table td.t {
+  max-width: 340px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.lib-table td.t.s { max-width: 200px; color: var(--muted); }
+.lib-table td.t a { color: var(--text); text-decoration: none; }
+.lib-table td.t a:hover { color: var(--accent); }
+.lib-table tbody tr:hover td { background: color-mix(in srgb, var(--accent) 6%, transparent); }
+
+/* Paired mode: one row per EN/JP pair */
+.grid.paired-mode {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.pair-row {
+  display: flex;
+  align-items: stretch;
+  gap: 12px;
+  background: var(--panel2);
+  border: 1px solid #3a4050;
+  border-radius: 16px;
+  padding: 12px;
+}
+
+.pair-side {
+  flex: 1;
+  min-width: 0;
+  max-width: 220px;
+}
+
+.pair-side .card {
+  height: 100%;
+  background: var(--bg);
+  border-color: var(--border);
+}
+
+.pair-sep {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--muted);
+  font-size: 1.25rem;
+  flex-shrink: 0;
+  padding: 0 4px;
+}
+
+/* ── Shared button base ──────────────────────────────────────── */
+
+.btn {
+  color: var(--text);
+  font-size: 0.85rem;
+  padding: 6px 12px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+
+.manage-btn { margin-left: auto; display: inline-flex; align-items: center; gap: 6px; }
+.manage-btn .mi { font-size: 1.1rem; }
+
+/* ── Edit-mode control group (ui.js moreBtn, the per-page edit buttons) ─────
+   One rounded pill of segmented buttons, shown only while the page is `.managing`.
+   Theme tokens only (panel/border/text, accent on hover), so it follows light/dark
+   like the rest of the shelf; the opaque panel keeps it legible over any cover.
+   On a card it takes the cover's top-right corner (where the audio badge fades out);
+   in a series row it ends the actions. The ⋯ popover is `.row-menu`. */
+
+.card { position: relative; }
+
+.edit-group {
+  display: none;
+  flex-shrink: 0;
+  align-items: stretch;
+  overflow: hidden;
+  background: var(--panel);
+  border: 2px solid var(--border);
+  border-radius: 999px;
+  box-shadow: 0 3px 8px -2px rgba(0, 0, 0, 0.3);
+}
+.managing .edit-group { display: inline-flex; }
+.card .edit-group { position: absolute; top: 8px; right: 8px; z-index: 2; }
+.edit-group > button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: none;
+  border: 0;
+  color: var(--text);
+  font: 800 0.72rem 'Baloo 2', 'Hanken Grotesk', sans-serif;
+  line-height: 1;
+  padding: 4px 9px;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+.edit-group > button + button { border-left: 1px solid var(--border); }
+.edit-group > button:hover:not(:disabled),
+.edit-group > button:focus-visible { background: var(--panel2); color: var(--accent); outline-offset: -2px; }
+.edit-group > button:disabled { opacity: 0.35; cursor: default; }
+.edit-group .mi { font-size: 1.05rem; }
+.edit-group > .row-menu-btn { font-size: 1rem; }
+
+.row-menu {
+  /* a popover: UA defaults centre it, ui.js openMenu() sets top/left */
+  inset: auto;
+  margin: 0;
+  padding: 4px;
+  min-width: 11rem;
+  background: var(--panel);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25);
+}
+.row-menu-item {
+  display: block;
+  width: 100%;
+  background: none;
+  border: 0;
+  border-radius: 8px;
+  color: inherit;
+  font: inherit;
+  font-size: 0.875rem;
+  text-align: left;
+  padding: 8px 10px;
+  cursor: pointer;
+}
+.row-menu-item:hover, .row-menu-item:focus-visible { background: var(--panel2); }
+.row-menu-item:focus-visible { outline-offset: -2px; }
+.row-menu-item.danger { color: var(--danger-ink); }
+.row-menu-item.danger:hover, .row-menu-item.danger:focus-visible { background: color-mix(in srgb, var(--danger) 15%, transparent); }
+
+/* Genre: a static chip normally, swapped for an editable <select> (same chip
+   look) while managing — both always render, CSS just picks which shows, so
+   toggling Edit needs no extra re-render pass. The `.card` qualifier on the
+   hide rule matches `.card .chip`'s specificity (display: inline-flex) —
+   a bare `.genre-select` selector loses that fight and stays visible. */
+.card .genre-select {
+  display: none;
+  appearance: none;
+  -webkit-appearance: none;
+  border: 1px solid var(--border);
+  cursor: pointer;
+  padding-right: 14px;
+}
+.genre-select:disabled { cursor: default; opacity: 0.6; }
+.managing .genre-chip { display: none; }
+.managing .genre-select { display: inline-flex; }
+
+/* ── Confirmation modal ──────────────────────────────────────── */
+
+.modal-box {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  padding: 22px 24px;
+  max-width: 380px;
+  width: 90vw;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.modal-title { margin: 0; font-size: 1rem; }
+.modal-desc { margin: 0; font-size: 0.875rem; }
+.modal-warning { margin: 0; font-size: 0.78rem; color: var(--danger-ink); }
+.modal-actions {
+  display: flex;
+  gap: 10px;
+  justify-content: flex-end;
+  margin-top: 6px;
+}
+
+.modal-input {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text);
+  font-size: 0.9rem;
+  padding: 8px 10px;
+  width: 100%;
+  box-sizing: border-box;
+}
+.modal-input:focus { border-color: var(--accent); }
+
+/* Native <dialog> (ui.js confirmDialog/promptDialog): the box is the same
+   .modal-box; the dialog itself is just a transparent frame over the backdrop. */
+dialog.dlg {
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: var(--text);
+  max-width: none;
+  max-height: none;
+  overflow: visible;
+}
+dialog.dlg::backdrop { background: rgba(0, 0, 0, 0.65); }
+dialog.dlg .modal-box { margin: 0; }
+
+/* Toasts (ui.js toast()): non-blocking, bottom-right, click to dismiss. */
+.toast-region {
+  position: fixed;
+  right: 16px;
+  bottom: 16px;
+  z-index: 300;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-width: min(380px, calc(100vw - 32px));
+}
+.toast {
+  background: var(--panel);
+  color: var(--text);
+  border: 2px solid var(--border);
+  border-left-width: 6px;
+  border-radius: 12px;
+  padding: 10px 14px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  box-shadow: 0 8px 24px -10px rgba(44, 35, 64, 0.5);
+  cursor: pointer;
+}
+.toast-error { border-left-color: var(--danger); }
+.toast-ok { border-left-color: var(--ok); }
+/* A toast with an action (an Undo): the message, then one quiet button at the end. The
+   button is padded to a 32px target; the negative margin keeps the toast's own height. */
+.toast.has-action { display: flex; align-items: center; gap: 12px; }
+.toast.has-action > span { flex: 1; min-width: 0; }
+.toast .toast-action { color: var(--accent-ink); padding: 7px 10px; margin: -7px -6px -7px 0; white-space: nowrap; }
+.toast .toast-action:disabled { opacity: 0.6; cursor: default; }
+
+/* ── mark known ──────────────────────────────────────────────────────────────
+   Click-to-mark-known rows, shared by the book page's study list and the
+   frequency list on /known. See static/mark.js. */
+.mark-btn {
+  min-width: 40px;
+  min-height: 34px;
+  background: transparent;
+  color: var(--muted);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 3px 9px;
+  font-size: 0.8rem;
+  line-height: 1.3;
+  cursor: pointer;
+  transition: color 0.12s, border-color 0.12s, background 0.12s;
+}
+.mark-btn:hover {
+  color: var(--ok-ink);
+  border-color: var(--ok);
+  background: color-mix(in srgb, var(--ok) 10%, transparent);
+}
+/* A marked row stays in place rather than vanishing, so a misclick is visible
+   and the same button undoes it. The word is struck and muted; the row isn't faded,
+   which used to take its own undo button down to ~2.4:1 (#245). */
+tr.marked .mark-btn {
+  color: var(--ok-ink);
+  border-color: var(--ok);
+  background: color-mix(in srgb, var(--ok) 14%, transparent);
+}
+tr.marked .study-word,
+tr.marked .freq-w { text-decoration: line-through; color: var(--muted); }
+
+/* "Not a word": the quieter sibling of the check, for names and fragments. Dimmed and
+   struck like a marked row, in the muted ink rather than the ok green. */
+.skip-btn {
+  min-width: 40px;
+  min-height: 34px;
+  background: transparent;
+  color: var(--muted);
+  border: 1px solid transparent;
+  border-radius: 8px;
+  padding: 3px 9px;
+  font-size: 0.8rem;
+  line-height: 1.3;
+  cursor: pointer;
+  transition: color 0.12s, border-color 0.12s, background 0.12s;
+}
+.skip-btn:hover { color: var(--text); border-color: var(--border); }
+tr.skipped .skip-btn { color: var(--text); border-color: var(--border); background: color-mix(in srgb, var(--muted) 16%, transparent); }
+tr.skipped .study-word,
+tr.skipped .freq-w { text-decoration: line-through; color: var(--muted); }
+
+.aside-list { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 8px; }
+.aside-list li { display: flex; align-items: center; gap: 8px; padding: 4px 4px 4px 12px; border: 1px solid var(--border); border-radius: 999px; }
+.aside-undo { font-size: 0.75rem; padding: 4px 10px; border: 0; border-radius: 999px; background: transparent; color: var(--accent-ink); cursor: pointer; }
+.aside-undo:hover { background: color-mix(in srgb, var(--accent-ink) 10%, transparent); }
+
+.mark-status { font-size: 0.8rem; min-height: 1.2em; margin-top: 10px; }
+.mark-status.pending { color: var(--muted); }
+.mark-status.ok { color: var(--ok-ink); }
+.mark-status.err { color: var(--danger-ink); }
+
+/* Whole-page failure (book not found, load error). */
+.error-box { color: var(--danger-ink); padding: 24px; font-size: 0.95rem; }
+.error-box a { color: var(--accent-ink); }
+
+/* ===================================================================
+   Playful Shelf reskin (direction 1b), light theme.
+   Layered after the base rules: tokens above handle most surfaces;
+   these component overrides bring the playful shell + shelf cards.
+   Pure CSS — no markup/JS changes, every class/id hook preserved.
+   =================================================================== */
+
+body {
+  font-family: 'Hanken Grotesk', -apple-system, BlinkMacSystemFont,
+    'Hiragino Sans', 'Noto Sans JP', sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+h1 { font-family: 'Baloo 2', 'Hanken Grotesk', sans-serif; font-weight: 700; }
+
+/* ── Sidebar: always deep purple ── */
+.sidebar { background: var(--sidebar-bg); border-right: none; padding: 8px 10px; }
+/* Hondana brand: coral 本 tile + name, replacing the old icon.png + "Library" */
+.brand-tile {
+  width: 42px; height: 42px; flex: none;
+  border-radius: 16px;
+  background: linear-gradient(135deg, var(--accent1), var(--accent2));
+  color: var(--on-accent);
+  display: grid; place-items: center;
+  font: 700 20px 'Baloo 2', sans-serif;
+  box-shadow: 0 3px 0 #d94f82;   /* the shelf's hard ledge, not a glow (STYLE.md §3) */
+}
+.brand-name { display: flex; flex-direction: column; min-width: 0; }
+/* The name stands alone beside the tile, so it carries the brand at the
+   tile's visual weight. */
+.brand-title { font: 800 24px/1 'Baloo 2', sans-serif; color: #fff; padding-top: 3px; }
+.nav-links { margin-top: 10px; }
+.nav-link {
+  color: rgba(255, 255, 255, 0.72);
+  font-family: 'Hanken Grotesk', sans-serif;
+  font-weight: 600;
+  gap: 11px;
+  border-radius: 12px;
+  padding: 10px 11px;
+  margin: 3px 4px;
+}
+.nav-icon {
+  width: 29px; height: 29px;
+  display: grid; place-items: center;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.1);
+  font-family: 'Noto Sans JP', sans-serif;
+  font-size: 15px;
+  font-weight: 500;
+  color: rgba(255, 255, 255, 0.82);
+}
+.nav-link.active .nav-icon { color: var(--on-accent); }
+.nav-link:hover { background: rgba(255, 255, 255, 0.07); }
+.nav-link.active { background: #fff; color: #2c2340; }
+.nav-link.active .nav-icon { background: linear-gradient(135deg, var(--accent1), var(--accent2)); }
+/* A nav tile is a sticker (STYLE.md §8): the current page's sits tilted, and the
+   others tilt to match when you reach for them. */
+.nav-icon { transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1); }
+.nav-link.active .nav-icon { transform: rotate(-6deg); }
+.nav-link:not(.active):focus-visible .nav-icon { transform: rotate(-6deg) scale(1.08); }
+@media (hover: hover) {
+  .nav-link:not(.active):hover .nav-icon { transform: rotate(-6deg) scale(1.08); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .nav-icon { transition: none; }
+  .known-card.bump, .known-card.celebrate, .theme-toggle .ic.swap, .known-card.milestone .known-card-art::after { animation: none; }
+  .known-card { transition: none; }
+  /* The sticker still appears (it carries the news); it just doesn't move. */
+  .known-card-gain.on { animation: known-gain-still 2.3s linear both; }
+  @keyframes known-gain-still { 0%, 85% { opacity: 1; } 100% { opacity: 0; } }
+}
+
+/* ── Header + controls ── */
+header { background: var(--bg); border-bottom: 1px solid var(--border); }
+.header-row h1 { color: var(--text); }
+h1 { font-size: 1.6rem; }
+.nav-toggle { border: none; background: rgba(44, 35, 64, 0.06); border-radius: 12px; color: var(--text); }
+.nav-toggle:hover { background: rgba(44, 35, 64, 0.12); }
+.controls input, .controls select {
+  background: var(--panel);
+  border: 2px solid var(--border);
+  border-radius: 16px;
+  padding: 9px 13px;
+}
+.controls input[type="search"]::placeholder { color: var(--muted); }
+.controls label { font-weight: 600; }
+.count { font-family: 'Space Mono', monospace; }
+
+/* ── Cards: rounded shelf ── */
+.grid { gap: 22px 18px; padding: 18px 16px; grid-template-columns: repeat(auto-fill, minmax(178px, 1fr)); }
+.card {
+  background: var(--panel);
+  border: 2px solid var(--border);
+  border-radius: 18px;
+  box-shadow: 0 4px 0 var(--card-shadow);
+  padding: 10px;
+  transition: transform 0.14s ease;
+}
+.card:hover { transform: translateY(-3px); }
+.card .cover {
+  border-radius: 12px;
+  background: linear-gradient(150deg, rgba(255, 158, 109, 0.14), rgba(255, 109, 158, 0.12));
+}
+.series-badge {
+  
+  transform: rotate(-5deg);
+  background: #fff;
+  border: none;
+  color: #2c2340;
+  font-family: 'Baloo 2', sans-serif;
+  font-weight: 800;
+  font-size: 0.72rem;
+  padding: 4px 9px;
+  border-radius: 12px;
+  box-shadow: 0 3px 8px -2px rgba(0, 0, 0, 0.35);
+  backdrop-filter: none;
+}
+.card-body { padding: 9px 4px 3px; gap: 7px; }
+.title { font-family: 'Noto Sans JP', sans-serif; }
+.author { color: var(--muted); }
+
+/* ── Chips: pastel pills (keep the base fixed heights intact) ── */
+.chip { border: none; border-radius: 999px; font-weight: 700; padding: 3px 9px; background: var(--panel2); color: var(--muted); }
+.chip.lang-ja { background: #f6e3c9; color: #8b5c1b; }
+.chip.lang-en { background: #dbeee2; color: #2d7451; }
+.chip.strain  { background: #f7dfe2; color: #a54556; }
+.chip.known   { background: #dbeee2; color: #2d7451; }
+.chip.read    { background: #e6dcf2; color: #7b4aa6; }
+.chip.level   { background: #d9e8f2; color: #2f6a95; }
+.chip.pair    { background: #ece1f5; color: #7b4aa6; }
+.chip.diff    { background: #f6e3c9; color: #8b5c1b; }
+a.chip:hover  { background: var(--panel2); filter: brightness(0.96); }
+
+/* Natively level chip, when the match isn't confirmed per-volume (series
+   average or low-confidence — see levelUnconfirmed() in book.js). Same
+   dashed/subdued treatment as the cover sticker's .lv-unconfirmed. */
+.chip.level.unconfirmed { background: transparent; border: 1px dashed currentColor; opacity: 0.75; }
+
+/* ── Buttons: the four tiers of STYLE.md §7 ──
+   One look per tier; page files only add layout and size (padding, font-size),
+   never fill, border, radius or colour. */
+.btn, .ab-btn, .read-btn, .stage-btn, .danger-btn {
+  border: 2px solid var(--border); border-radius: 20px;
+  background: var(--panel); color: var(--text);
+  font-family: inherit; font-weight: 700; cursor: pointer;
+}
+.btn:hover:not(:disabled), .ab-btn:hover:not(:disabled), .read-btn:hover:not(:disabled),
+.stage-btn:hover:not(:disabled) { background: var(--panel2); border-color: var(--accent); }
+.btn:disabled, .ab-btn:disabled, .read-btn:disabled, .stage-btn:disabled, .danger-btn:disabled { opacity: 0.45; cursor: default; }
+.read-btn.on { color: var(--ok); border-color: var(--ok); }
+/* The :hover twin matters: `.btn:hover:not(:disabled)` (above) is more specific than
+   `.manage-btn.active`, so without it the cursor that just clicked Edit wipes the gradient
+   and leaves dark ink on the panel (1.2:1 in dark mode, #313). */
+.manage-btn.active,
+.manage-btn.active:hover:not(:disabled) { color: var(--on-accent); border-color: transparent; background: linear-gradient(135deg, var(--accent1), var(--accent2)); }
+.manage-btn.active:hover:not(:disabled) { filter: brightness(1.06); }
+
+.btn-primary, .submit-btn, .bd-save, .profile-create {
+  border: 0; border-radius: 20px;
+  background: linear-gradient(135deg, var(--accent1), var(--accent2)); color: var(--on-accent);
+  font-family: inherit; font-weight: 700; cursor: pointer;
+}
+:is(.btn-primary, .submit-btn, .bd-save, .profile-create):hover:not(:disabled) { filter: brightness(1.06); }
+:is(.btn-primary, .submit-btn, .bd-save, .profile-create):disabled { opacity: 0.45; cursor: default; }
+
+.ghost-btn, .link-btn, .bd-reset, .profile-cancel {
+  background: none; border: 0; color: var(--muted);
+  font-family: inherit; font-weight: 700; cursor: pointer;
+}
+.ghost-btn:hover, .bd-reset:hover, .profile-cancel:hover { color: var(--text); }
+.link-btn:hover { opacity: 0.75; }
+.ghost-btn { font-size: 0.85rem; padding: 8px 14px; }
+.link-btn, .bd-reset { padding: 0; font: inherit; text-decoration: underline; }
+.link-btn { color: inherit; }
+
+.btn-danger, .danger-btn { color: var(--danger-ink); border-color: var(--danger); }
+.btn-danger:hover:not(:disabled), .danger-btn:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--danger) 10%, var(--panel)); border-color: var(--danger);
+}
+
+/* ── Detail cards + modal: match the rounded shelf language ── */
+.series-vols, .modal-box { border: 2px solid var(--border); border-radius: 18px; }
+.modal-box { box-shadow: 0 18px 44px -20px rgba(44, 35, 64, 0.5); }
+
+/* ── Sidebar footer: Known-words stat + theme toggle (injected by nav.js) ── */
+.sidebar-foot { margin-top: auto; padding: 10px 4px 4px; }
+
+/* Coral "Known words" badge, count filled from /api/known-words. It is the learner's
+   standing, so it is the loudest thing in the sidebar: a pressed-sticker card (hard
+   ledge like the primary buttons) with the count in big Baloo and a ghosted glyph. */
+.known-card {
+  position: relative;
+  display: block;
+  padding: 13px 15px 12px;
+  margin-bottom: 12px;
+  border-radius: 18px;
+  background:
+    radial-gradient(130% 95% at 6% -12%, rgba(255, 255, 255, 0.42), transparent 58%),
+    linear-gradient(135deg, var(--accent1), var(--accent2));
+  box-shadow: 0 4px 0 #d94f82;
+  color: var(--on-accent);
+  text-decoration: none;
+  transition: transform 0.14s, filter 0.15s;
+}
+.known-card:hover { filter: brightness(1.04); }
+.known-card[aria-current] { box-shadow: 0 4px 0 #d94f82, 0 0 0 3px #fff; }
+@media (hover: hover) { .known-card:hover { transform: translateY(-2px); } }
+/* Everything but the art and the sticker sits above the ghosted glyph. */
+.known-card > :not(.known-card-art):not(.known-card-gain) { position: relative; }
+.known-card-art {
+  position: absolute; inset: 0;
+  border-radius: inherit; overflow: hidden;
+  pointer-events: none;
+}
+.known-card-art .mi {
+  position: absolute; right: -6px; top: -10px;
+  font-size: 92px; line-height: 1;
+  transform: rotate(-14deg);
+  opacity: 0.13;
+}
+/* Ten passed: one pass of light across the card (a hundred, below, sweeps twice). */
+.known-card-art::after {
+  content: ''; position: absolute; inset: 0;
+  background: linear-gradient(105deg, transparent 36%, rgba(255, 255, 255, 0.6) 50%, transparent 64%);
+  transform: translateX(-125%);
+}
+.known-card.milestone .known-card-art::after { animation: known-sheen 1.2s cubic-bezier(0.16, 1, 0.3, 1) 0.1s both; }
+@keyframes known-sheen { to { transform: translateX(125%); } }
+.known-card-label {
+  display: block;
+  font: 700 11px 'Space Mono', monospace;
+  letter-spacing: 0.08em; text-transform: uppercase;
+  opacity: 0.88;
+}
+.known-card-num {
+  display: block;
+  margin-top: 3px;
+  font: 800 40px/1 'Baloo 2', sans-serif;
+  letter-spacing: -0.01em;
+  font-variant-numeric: tabular-nums;
+  text-shadow: 2px 2px 0 rgba(255, 255, 255, 0.5);
+}
+/* A count that rose: the card bumps and a sticker (STYLE.md §8: white, tilted,
+   Baloo 800, sidebar-ink) is pressed onto its corner, then peels away. */
+.known-card.bump { animation: known-bump 0.4s cubic-bezier(0.16, 1, 0.3, 1); }
+@keyframes known-bump { 35% { transform: scale(1.035); filter: brightness(1.06); } }
+.known-card-gain {
+  position: absolute; top: -9px; right: 10px;
+  padding: 1px 9px 0;
+  border-radius: 999px;
+  background: #fff; color: var(--sidebar-bg);
+  font: 800 13px/1.5 'Baloo 2', sans-serif;
+  box-shadow: 0 3px 8px -2px rgba(0, 0, 0, 0.35);
+  opacity: 0; transform: rotate(-6deg);
+  pointer-events: none;
+}
+.known-card-gain.on { animation: known-gain 2.3s cubic-bezier(0.16, 1, 0.3, 1) both; }
+@keyframes known-gain {
+  0%   { opacity: 0; transform: translateY(6px) scale(1.5) rotate(-16deg); }
+  12%  { opacity: 1; transform: rotate(-6deg); }
+  80%  { opacity: 1; transform: rotate(-6deg); }
+  100% { opacity: 0; transform: translateY(-8px) rotate(-6deg); }
+}
+/* Ten passed: the label says so for a few seconds. */
+.known-card.milestone .known-card-label { opacity: 1; }
+/* A hundred passed (#273): the card swells further than a plain bump, a ring of light
+   spreads off its ledge, and the light sweeps twice. */
+.known-card.big.milestone .known-card-art::after { animation-iteration-count: 2; animation-duration: 0.9s; }
+.known-card.celebrate { animation: known-swell 0.6s cubic-bezier(0.16, 1, 0.3, 1), known-ring 1.1s ease-out; }
+@keyframes known-swell { 30% { transform: scale(1.08) rotate(-1.5deg); filter: brightness(1.1); } 60% { transform: scale(0.99); } }
+@keyframes known-ring {
+  from { box-shadow: 0 4px 0 #d94f82, 0 0 0 0 rgba(255, 255, 255, 0.9); }
+  to   { box-shadow: 0 4px 0 #d94f82, 0 0 0 16px rgba(255, 255, 255, 0); }
+}
+@media (prefers-reduced-motion: reduce) {   /* after the rules it overrides, so it wins the cascade */
+  .known-card.celebrate { animation: none; }
+}
+.theme-toggle {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  padding: 10px 11px;
+  border: none;
+  border-radius: 12px;
+  cursor: pointer;
+  background: rgba(255, 255, 255, 0.08);
+  color: rgba(255, 255, 255, 0.8);
+  font: 600 13px 'Hanken Grotesk', sans-serif;
+  transition: background 0.15s;
+}
+.theme-toggle:hover { background: rgba(255, 255, 255, 0.14); }
+.theme-toggle .ic {
+  width: 29px; height: 29px; flex-shrink: 0;
+  display: grid; place-items: center;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.12);
+  font-size: 15px;
+}
+.theme-toggle .ic.swap { animation: ic-swap 0.45s cubic-bezier(0.16, 1, 0.3, 1); }
+@keyframes ic-swap { from { opacity: 0; transform: rotate(-110deg) scale(0.5); } }
+
+/* ── Profile switcher (injected by nav.js, sits above the Known-words card) ── */
+.profile-switcher { position: relative; margin-bottom: 8px; }
+
+/* Coral rounded initial tile, shared by the current button and menu rows. */
+.profile-avatar {
+  width: 29px; height: 29px; flex: none;
+  display: grid; place-items: center;
+  border-radius: 12px;
+  background: linear-gradient(135deg, var(--accent1), var(--accent2));
+  color: var(--on-accent);
+  font: 700 13px 'Baloo 2', sans-serif;
+}
+.profile-lang {
+  flex: none;
+  font: 700 11px 'Space Mono', monospace;
+  letter-spacing: 0.04em;
+  padding: 2px 6px;
+  border-radius: 999px;
+}
+
+/* The always-visible control on the purple sidebar (mirrors .theme-toggle).
+   Two distinct hit targets, not one: .profile-view navigates straight to
+   /profile, .profile-caret-btn opens the switch-profile menu. Previously a
+   single button overloaded both actions, disambiguated only by whether the
+   row you tapped happened to already be checked. */
+.profile-current {
+  width: 100%;
+  display: flex;
+  align-items: stretch;
+  gap: 2px;
+}
+.profile-view {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border-radius: 12px;
+  text-decoration: none;
+  background: rgba(255, 255, 255, 0.08);
+  transition: background 0.15s;
+}
+.profile-view:hover { background: rgba(255, 255, 255, 0.14); }
+.profile-current-name {
+  flex: 1; min-width: 0;
+  text-align: left;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  font: 700 13px 'Hanken Grotesk', sans-serif;
+  color: #fff;
+}
+.profile-view .profile-lang {
+  background: rgba(255, 255, 255, 0.14);
+  color: rgba(255, 255, 255, 0.85);
+}
+.profile-caret-btn {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 44px;
+  min-height: 44px;
+  border: none;
+  border-radius: 12px;
+  cursor: pointer;
+  background: rgba(255, 255, 255, 0.08);
+  transition: background 0.15s;
+}
+.profile-caret-btn:hover { background: rgba(255, 255, 255, 0.14); }
+.profile-caret {
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.6);
+  transition: transform 0.15s;
+}
+.profile-switcher.open .profile-caret { transform: rotate(180deg); }
+
+/* The pop-up menu — a light card opening upward over the nav links. */
+.profile-menu {
+  display: none;
+  position: absolute;
+  left: 0; right: 0;
+  bottom: calc(100% + 6px);
+  max-height: 60vh;
+  overflow-y: auto;
+  padding: 6px;
+  border-radius: 16px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  box-shadow: 0 8px 18px -8px rgba(44, 35, 64, 0.45);
+  z-index: 30;
+}
+.profile-switcher.open .profile-menu { display: block; }
+.profile-list { display: flex; flex-direction: column; gap: 2px; }
+.profile-item {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 7px 8px;
+  border: none;
+  border-radius: 12px;
+  cursor: pointer;
+  background: none;
+  transition: background 0.12s;
+}
+.profile-item:hover { background: var(--panel2); }
+.profile-item.is-active { background: var(--panel2); }
+.profile-item-name {
+  flex: 1; min-width: 0;
+  text-align: left;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  font: 600 13px 'Hanken Grotesk', sans-serif;
+  color: var(--text);
+}
+.profile-item .profile-lang { background: var(--panel2); color: var(--muted); }
+.profile-item.is-active .profile-lang { background: var(--panel); }
+.profile-check { flex: none; color: var(--accent); font-weight: 700; }
+
+.profile-add {
+  width: 100%;
+  margin-top: 4px;
+  padding: 8px;
+  border: none;
+  border-radius: 12px;
+  cursor: pointer;
+  background: none;
+  color: var(--muted);
+  font: 700 12px 'Hanken Grotesk', sans-serif;
+  text-align: left;
+}
+.profile-add:hover { background: var(--panel2); color: var(--text); }
+
+.profile-add-form { display: flex; flex-direction: column; gap: 7px; padding: 6px 4px 2px; }
+.profile-name-input, .profile-lang-select {
+  width: 100%;
+  padding: 7px 9px;
+  border: 2px solid var(--border);
+  border-radius: 12px;
+  background: var(--bg);
+  color: var(--text);
+  font: 600 13px 'Hanken Grotesk', sans-serif;
+}
+.profile-form-row { display: flex; gap: 6px; }
+.profile-create, .profile-cancel {
+  flex: 1;
+  padding: 7px;
+  font-size: 12px;
+}
+.profile-error { margin: 2px 0 0; font: 600 11px 'Hanken Grotesk', sans-serif; color: var(--danger-ink); }
+
+/* ===================================================================
+   Dark Playful Shelf variant. Toggled by `body.dark` (nav.js).
+   Tokens flip most surfaces; a few hardcoded light fills need overrides.
+   The purple sidebar, white active pill and sticker badge stay in both.
+   =================================================================== */
+body.dark {
+  --bg: #211d2b;
+  --panel: #2b2637;
+  --panel2: #332c46;
+  --text: #f4eff6;
+  --muted: #b6acc6;
+  --border: #3b3450;
+  --card-shadow: #17131f;
+  --ja: #e0a94a;
+  --en: #7fbf8f;
+  --danger-ink: #f28b82;
+  --ok-ink: #8fd6ac;
+  --accent-ink: #ff6d9e;
+  --violet-ink: #c9a6f0;
+  --violet-bg: #352a4a;
+}
+body.dark .controls input,
+body.dark .controls select { color: var(--text); }
+body.dark .nav-toggle { background: rgba(255, 255, 255, 0.08); color: var(--text); }
+body.dark .nav-toggle:hover { background: rgba(255, 255, 255, 0.16); }
+/* Pastel chips get a touch of transparency so they sit on dark cards. */
+body.dark .chip.lang-ja { background: #4a3a24; color: #e0b878; }
+body.dark .chip.lang-en { background: #24402f; color: #8fd6a8; }
+body.dark .chip.strain  { background: #46262d; color: #f0a6b0; }
+body.dark .chip.known   { background: #24402f; color: #8fd6a8; }
+body.dark .chip.read    { background: #352a4a; color: #c9a6f0; }
+body.dark .chip.level   { background: #23384a; color: #8fc0e0; }
+body.dark .chip.pair    { background: #352a4a; color: #c9a6f0; }
+body.dark .chip.diff    { background: #4a3a24; color: #e0b878; }
+body.dark .chip.level.unconfirmed { background: transparent; }
+body.dark .chip { background: var(--panel2); color: var(--muted); }
+
+/* ===================================================================
+   Page polish: pull the bespoke per-page components (/next, /add,
+   /known, /admin, /pair, /book, /series) into the Playful Shelf
+   language. Each page's own <style> loads after app.css, so these use
+   a `.layout …` prefix to outrank single-class page rules by specificity
+   (which beats source order). No template edits needed.
+   =================================================================== */
+
+/* Shelf card (STYLE.md §6): the one base every page's card shares —
+   2px border, 18px radius, shelf shadow, 22px padding (14px on phones).
+   Page CSS adds only layout (flex/gap) on top; don't restate the look. */
+.stats-card,
+.add-card,
+.admin-card,
+.series-hero {
+  background: var(--panel);
+  border: 2px solid var(--border);
+  border-radius: 18px;
+  box-shadow: 0 4px 0 var(--card-shadow);
+  padding: 22px;
+}
+@media (max-width: 639px) {
+  .stats-card, .add-card, .admin-card, .series-hero { padding: 14px; }
+}
+
+/* Hero + pair rows → rounded shelf (still on the .layout specificity trick). */
+.layout .book-hero,
+.layout .row {
+  border-width: 2px;
+  border-radius: 18px;
+  box-shadow: 0 4px 0 var(--card-shadow);
+}
+
+/* Headings → Baloo, matching the Library title. */
+.stats-card h2,
+.add-card h2,
+.admin-card h2 {
+  font-family: 'Baloo 2', 'Hanken Grotesk', sans-serif;
+  font-size: 1.05rem;
+  color: var(--text);
+}
+.layout .book-title,
+.layout .known-summary {
+  font-family: 'Baloo 2', 'Hanken Grotesk', sans-serif;
+}
+
+/* Link/unlink buttons and the manual-pair select → rounded. */
+.layout button.link,
+.layout button.unlink,
+.layout .manual select {
+  border-radius: 12px;
+}
+
+/* Drop zones a touch rounder to match the cards. */
+.layout .drop-zone { border-radius: 16px; }
+
+/* /next scatter: axis was a hardcoded dark slate — use the muted token
+   so it reads on both themes. */
+.layout .scatter .axis { stroke: var(--muted); }
+
+/* ===================================================================
+   Library toolbar → Playful Shelf (direction 1b).
+   The native <select> row becomes segmented language + Grid/List pills,
+   a leaf sort pill, pill filter toggles, a pink count badge and a
+   dotted search box. These classes appear only on index.html, so /next
+   and /audiobooks (which share .controls/.chk/.count) are untouched.
+   =================================================================== */
+
+/* Skip link: first Tab stop, off-screen until focused (the target sets tabindex=-1). */
+.skip-link {
+  position: absolute; left: 12px; top: -60px; z-index: 100;
+  padding: 9px 16px; border-radius: 12px;
+  background: var(--panel); color: var(--text); border: 2px solid var(--accent-ink);
+  font: 700 0.85rem 'Hanken Grotesk', sans-serif; text-decoration: none;
+}
+.skip-link:focus { top: 12px; }
+
+/* Value-source <select>s behind the segmented pills, visually hidden but
+   still readable by matches()/render() and reachable by keyboard. */
+.sr-only {
+  position: absolute;
+  width: 1px; height: 1px;
+  padding: 0; margin: -1px;
+  overflow: hidden; clip: rect(0 0 0 0);
+  white-space: nowrap; border: 0;
+}
+
+/* Header row: title · pink count badge · search (pushed to the right). */
+.header-row { flex-wrap: wrap; gap: 10px 12px; }
+.count-badge {
+  font: 700 0.76rem 'Space Mono', monospace;
+  color: var(--on-accent);
+  background: var(--accent);
+  padding: 5px 12px;
+  border-radius: 20px;
+  white-space: nowrap;
+}
+
+.search-box {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 0 1 300px;
+  background: var(--panel);
+  border: 2px solid var(--border);
+  border-radius: 16px;
+  padding: 0 15px;
+}
+.search-dot {
+  width: 9px; height: 9px; flex: none;
+  border: 2.5px solid var(--accent);
+  border-radius: 50%;
+}
+.search-box input {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  background: none;
+  padding: 10px 0;
+  font: 500 0.9rem 'Hanken Grotesk', sans-serif;
+  color: var(--text);
+  outline: none;
+}
+.search-box:focus-within { border-color: var(--accent); }
+.search-box input::placeholder { color: var(--muted); }
+
+/* Segmented pills. Default = standalone pills (language). */
+.seg { display: inline-flex; gap: 4px; }
+.seg-btn {
+  padding: 8px 15px;
+  border-radius: 20px;
+  border: 2px solid var(--border);
+  background: var(--panel);
+  color: var(--muted);
+  font: 700 0.78rem 'Hanken Grotesk', sans-serif;
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s, border-color 0.12s;
+}
+.seg-btn[lang="ja"] { font-family: 'Noto Sans JP', sans-serif; }
+.seg-btn:hover { background: var(--panel2); }
+.seg-btn.active {
+  background: var(--text);
+  color: var(--bg);
+  border-color: var(--text);
+}
+
+/* Tracked variant = a raised white chip in a recessed track (Grid/List). */
+.seg.track {
+  gap: 3px;
+  background: var(--panel2);
+  border-radius: 12px;
+  padding: 4px;
+}
+.seg.track .seg-btn {
+  padding: 6px 12px;
+  border: none;
+  border-radius: 12px;
+  background: transparent;
+  font-size: 0.72rem;
+}
+.seg.track .seg-btn:hover { background: rgba(0, 0, 0, 0.04); }
+.seg.track .seg-btn.active {
+  background: #fff;
+  color: #2c2340;
+  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.12);
+}
+
+/* Sort as a leaf pill wrapping a borderless native <select>. */
+.sort-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--panel);
+  border: 2px solid var(--border);
+  border-radius: 20px;
+  padding: 0 12px 0 13px;
+}
+.sort-pill .sort-ic { font-size: 0.85rem; line-height: 1; }
+.sort-pill select {
+  border: none;
+  background: none;
+  padding: 8px 2px;
+  border-radius: 0;
+  font: 700 0.8rem 'Hanken Grotesk', sans-serif;
+  color: var(--text);
+  cursor: pointer;
+}
+
+/* Filter checkboxes → pill toggles (scoped so /next keeps its plain .chk). */
+.filter-toggles { display: inline-flex; gap: 6px; flex-wrap: wrap; }
+.filter-toggles .chk {
+  gap: 0;
+  background: var(--panel);
+  border: 2px solid var(--border);
+  border-radius: 20px;
+  padding: 7px 13px;
+  font: 600 0.75rem 'Hanken Grotesk', sans-serif;
+  color: var(--muted);
+  cursor: pointer;
+  user-select: none;
+  transition: background 0.12s, color 0.12s, border-color 0.12s;
+}
+.filter-toggles .chk input {
+  position: absolute;
+  opacity: 0;
+  width: 1px; height: 1px;
+  margin: 0;
+}
+.filter-toggles .chk:hover { background: var(--panel2); }
+.filter-toggles .chk:has(input:focus-visible) { outline: 2px solid var(--accent); outline-offset: 2px; }
+.filter-toggles .chk:has(input:checked) {
+  background: var(--text);
+  color: var(--bg);
+  border-color: var(--text);
+}
+
+/* View toggle + Edit sit together, pushed to the right. */
+.controls-right {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+}
+.controls-right .manage-btn { margin-left: 0; }
+
+/* Audiobook sticker on a card cover corner (mock's 音 badge). */
+.audio-badge {
+  position: absolute;
+  top: 8px; right: 8px;
+  z-index: 1;
+  width: 26px; height: 26px;
+  display: grid; place-items: center;
+  border-radius: 50%;
+  background: #fff;
+  color: #2c2340;
+  font: 400 0.8125rem 'Noto Sans JP', sans-serif;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.25);
+}
+.managing .audio-badge { opacity: 0; }
+
+
+/* Toolbar-collapse button (mobile only): hidden on desktop, where
+   .controls is always visible in full. */
+.toolbar-toggle { display: none; }
+
+@media (max-width: 639px) {
+  /* Search shares the row with the icon-only .toolbar-toggle (44px + gap). */
+  .search-box { flex: 1 1 calc(100% - 58px); margin-left: 0; }
+  .controls-right { margin-left: 0; }
+
+  /* Auto-hide toolbar on scroll (nav.js). Scoped to headers with a
+     .search-box, i.e. only / and /audiobooks — other pages' plainer
+     headers are untouched. */
+  header:has(.search-box) {
+    transition: transform 0.25s ease;
+  }
+  header:has(.search-box).hide {
+    transform: translateY(-100%);
+  }
+
+  /* Collapse sort/filter/view behind .toolbar-toggle (nav.js) so a
+     reappearing toolbar isn't a wall of controls — search stays put above.
+     Only collapses .controls when its header has a .toolbar-toggle; pages
+     like /next without one keep their controls visible on mobile. */
+  .toolbar-toggle {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex: none;
+    width: 44px;
+    padding: 0;
+    align-self: stretch;
+  }
+  .toolbar-toggle[aria-expanded="true"] { background: var(--accent); color: var(--on-accent); }
+  header:has(.toolbar-toggle) .controls { display: none; }
+  header:has(.toolbar-toggle) .controls.open { display: flex; }
+}
+
+/* ===================================================================
+   Card badges: Natively level sticker + worded strain + genre chip.
+   The Lv sticker is the cover's hero (top-left, tilted, like the mock);
+   the series volume-count badge moves to the bottom-left to make room.
+   Level/strain data already ships to the client, so this is CSS + JS
+   presentation only — no pipeline change.
+   =================================================================== */
+
+/* Natively level sticker (learnnatively level, epub or audiobook). */
+.lv-badge {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  z-index: 1;
+  font: 800 0.72rem 'Baloo 2', 'Hanken Grotesk', sans-serif;
+  padding: 4px 9px;
+  border-radius: 12px;
+  background: #fff;
+  color: #2c2340;
+  transform: rotate(-6deg);
+  box-shadow: 0 3px 8px -2px rgba(0, 0, 0, 0.35);
+}
+.lv-badge.lv-a { color: #2f7a55; }   /* < 20  */
+.lv-badge.lv-b { color: #a06a1f; }   /* 20–24 */
+.lv-badge.lv-c { color: #c2691c; }   /* 25–29 */
+.lv-badge.lv-d { color: #b04a5c; }   /* 30–34 */
+.lv-badge.lv-e { color: #7b4aa6; }   /* 35+   */
+
+/* Unconfirmed level: matched at series level (not this volume) or below the
+   confidence threshold. Same color band, but visibly less certain — dashed
+   border instead of a drop shadow, lower opacity. Number gets a `~` prefix
+   in the markup itself so the distinction survives without hovering. */
+.lv-badge.lv-unconfirmed {
+  background: rgba(255, 255, 255, 0.75);
+  border: 1px dashed currentColor;
+  box-shadow: none;
+  opacity: 0.75;
+}
+
+/* Series volume-count badge yields the top-left corner to the Lv sticker. */
+.series-badge { top: auto; bottom: 8px; left: 8px; }
+
+/* Worded strain buckets — a category reads nicer than a bare percentage. */
+.chip.strain.s-low   { background: #dbeee2; color: #2d7451; }
+.chip.strain.s-some  { background: #f6e3c9; color: #8b5c1b; }
+.chip.strain.s-high  { background: #f7dfe2; color: #a54556; }
+.chip.strain.s-heavy { background: #f4d0cc; color: #a3342b; }
+
+/* Genre chip (audiobook cards). Elides if a genre name runs long. */
+.chip.genre {
+  background: #e7e0f2;
+  color: #6a4a9c;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+body.dark .chip.strain.s-low   { background: #24402f; color: #8fd6a8; }
+body.dark .chip.strain.s-some  { background: #4a3a24; color: #e0b878; }
+body.dark .chip.strain.s-high  { background: #46262d; color: #f0a6b0; }
+body.dark .chip.strain.s-heavy { background: #4a2420; color: #f0b0a6; }
+body.dark .chip.genre          { background: #352a4a; color: #c9a6f0; }
+
+/* ── Material Symbols (self-hosted subset: static/material-symbols.woff2) ──
+   Use via ui.js icon("name") or <span class="mi">name</span>. To add an icon,
+   re-fetch the subset from Google Fonts with the new name in `icon_names`. */
+@font-face {
+  font-family: 'Material Symbols Rounded';
+  font-style: normal;
+  font-weight: 500;
+  font-display: block;
+  src: url(/static/material-symbols.woff2) format('woff2');
+}
+.mi {
+  font-family: 'Material Symbols Rounded';
+  font-weight: 500;
+  font-style: normal;
+  font-size: 1.25em;
+  line-height: 1;
+  letter-spacing: normal;
+  text-transform: none;
+  display: inline-block;
+  white-space: nowrap;
+  direction: ltr;
+  vertical-align: middle;
+  flex-shrink: 0;
+  -webkit-font-smoothing: antialiased;
+  font-feature-settings: 'liga';
+}
+.nav-icon.mi, .theme-toggle .ic.mi { display: grid; place-items: center; font-size: 18px; }
+.nav-toggle.mi-btn { display: inline-grid; place-items: center; }
+.cover .placeholder.mi, .thumb.mi { font-size: 2rem; }
+
+/* ── Download buttons (ui.js dlEpub / dlAudio) ───────────────────────────────
+   One component for every EPUB / audiobook download. Variants: --epub (filled
+   coral), --audio (local M4B), --audible (external link), --none (nothing to
+   download). Sizes: default (hero), --sm (queue / runner-up), --xs (table and
+   volume rows). */
+.dl-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  box-sizing: border-box;
+  text-decoration: none;
+  font: 800 0.82rem/1.2 'Baloo 2', 'Hanken Grotesk', sans-serif;
+  padding: 9px 16px;
+  border-radius: 16px;
+  border: 2px solid var(--text);
+  background: transparent;
+  color: var(--text);
+  white-space: nowrap;
+  cursor: pointer;
+}
+.dl-btn:hover { background: var(--panel2); }
+.dl-btn .mi { font-size: 1.3em; }
+.dl-btn--epub {
+  background: linear-gradient(135deg, var(--accent1), var(--accent2));
+  border-color: transparent;
+  color: var(--on-accent);
+  box-shadow: 0 4px 0 #d94f82;
+}
+.dl-btn--epub:hover { background: linear-gradient(135deg, var(--accent1), var(--accent2)); filter: brightness(1.06); }
+.dl-btn--none {
+  border: 2px dashed var(--border);
+  color: var(--muted);
+  cursor: default;
+}
+.dl-btn--none:hover { background: transparent; }
+/* The book page's no-file states (opts.plain): text in the slot, not a button that does nothing. */
+.dl-note { display: inline-flex; align-items: center; gap: 6px; padding: 0 4px; min-height: 40px; font-size: 0.82rem; line-height: 1.3; color: var(--muted); }
+.dl-note a { color: var(--accent-ink); }
+body.dark .on-hero .dl-note { color: rgba(255, 255, 255, 0.78); }
+body.dark .on-hero .dl-note a { color: #fff; }
+.dl-btn--sm { font-size: 0.72rem; padding: 5px 12px; border-radius: 20px; gap: 4px; }
+.dl-btn--sm.dl-btn--epub { box-shadow: none; }
+.dl-btn--xs { font-size: 0.7rem; padding: 2px 8px; border-radius: 8px; border-width: 1px; gap: 3px; }
+.dl-btn--xs.dl-btn--epub { box-shadow: none; }
+.dl-btn--xs.dl-btn--audio, .dl-btn--xs.dl-btn--audible { border-color: var(--border); }
+.dl-btn--xs.dl-btn--none { border: none; }
+.dl-btn--icon { padding: 3px 6px; }
+/* Quiet tone (opts.tone "quiet"): the secondary look for a download repeated down
+   a ranked list, so the page keeps one coral primary. The EPUB glyph keeps the
+   accent; "No audiobook" drops its dashed outline but keeps its width. Must come
+   after the variant rules above (incl. their :hover) to win. */
+.dl-btn--quiet { background: var(--panel); border-color: var(--border); color: var(--text); box-shadow: none; }
+.dl-btn--quiet:hover { background: var(--panel2); border-color: var(--accent); filter: none; }
+.dl-btn--quiet.dl-btn--epub .mi { color: var(--accent); }
+.dl-btn--quiet.dl-btn--none,
+.dl-btn--quiet.dl-btn--none:hover { background: transparent; border-color: transparent; color: var(--muted); }
+/* Buttons laid over the dark purple hero card (/next, /book; dark theme): outlines go white. */
+body.dark .on-hero .dl-btn--audio,
+body.dark .on-hero .dl-btn--audible,
+body.dark .on-hero .read-btn { color: #fff; border-color: rgba(255, 255, 255, 0.6); }
+body.dark .on-hero .dl-btn--none { color: rgba(255, 255, 255, 0.55); border-color: rgba(255, 255, 255, 0.3); }
+body.dark .on-hero .read-btn { background: transparent; }
+body.dark .on-hero .read-btn:hover:not(:disabled) { background: rgba(255, 255, 255, 0.1); }
+body.dark .on-hero .read-btn.on { color: var(--ok); border-color: var(--ok); }
+
+/* Inline icons inside chips, stats and text buttons sit a touch smaller. */
+.chip .mi, .vol-stat .mi, .series-badge .mi, .read-btn .mi, .back-link .mi { font-size: 1.15em; }
+.placeholder.mi { font-size: 2rem; }
+.tracks summary .mi { font-size: 1.15em; }
+
+/* ── Queue rows (shared by /next, /series and /audiobook-series) ──
+   Cover + title block + badges + strain + download buttons. Moved out of
+   next.html so the series pages list volumes the same way. */
+
+.queue-actions { flex: none; display: flex; align-items: center; gap: 7px; }
+/* One width for every audiobook variant (M4B / Audible / No audiobook), sized
+   to the longest label, so the column lines up down the queue. */
+.queue-actions .dl-btn { width: 6.5rem; }
+.queue-list { display: flex; flex-direction: column; gap: 8px; }
+.queue-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  padding: 9px 14px;
+}
+.queue-rank {
+  flex: 0 0 24px;
+  text-align: center;
+  font: 800 0.9rem 'Baloo 2', 'Hanken Grotesk', sans-serif;
+  color: var(--muted);
+}
+.queue-cover {
+  flex: 0 0 40px;
+  width: 40px;
+  height: 54px;
+  border-radius: 8px;
+  background: var(--panel2);
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.queue-cover img { width: 100%; height: 100%; object-fit: cover; }
+.queue-cover .placeholder { color: var(--muted); font-size: 1.2rem; }
+.queue-info { flex: 1; min-width: 0; }
+.queue-title {
+  display: block;
+  color: var(--text);
+  text-decoration: none;
+  font-weight: 700;
+  font-size: 0.92rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.queue-title:hover { color: var(--accent); }
+.queue-sub { color: var(--muted); font-size: 0.78rem; margin-top: 2px; }
+.queue-badges { display: flex; gap: 6px; flex-wrap: wrap; flex: 0 1 auto; }
+
+/* Series pages exist to show full titles, so let them wrap. */
+.series-vols .queue-title { white-space: normal; }
+.series-vols .queue-row.missing .queue-title { color: var(--muted); }
+.series-vols .queue-list { margin-top: 10px; }
+/* Stats line: separate items that wrap as units, dot-separated. */
+.series-vols .queue-sub { display: flex; flex-wrap: wrap; gap: 0 6px; }
+.series-vols .queue-sub span + span::before { content: "·"; margin-right: 6px; }
+.queue-badges:empty { display: none; }
+.queue-rank:empty::before { content: "·"; }
+
+@media (max-width: 639px) {
+  /* Queue row as an explicit two-row grid, so the layout never depends on
+     flex-wrap arithmetic: rank + cover + title on row one, badges +
+     download on row two. */
+  .queue-row {
+    display: grid;
+    grid-template-columns: 24px 40px minmax(0, 1fr) auto;
+    gap: 8px 10px;
+    padding: 10px 12px;
+  }
+  .queue-rank  { grid-column: 1; grid-row: 1; }
+  .queue-cover { grid-column: 2; grid-row: 1; }
+  .queue-info  { grid-column: 3 / 5; grid-row: 1; }
+  .queue-badges { grid-column: 1 / 4; grid-row: 2; min-width: 0; }
+  .queue-actions { grid-column: 4; grid-row: 2; justify-self: end; }
+  .queue-badges .chip {
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+}
+
+/* Series pages on phones: three rows (title block / badges incl. strain /
+   download buttons). Two buttons at a fixed 6.5rem can't fit beside anything
+   in a ~300px card, so they split the full row instead. */
+@media (max-width: 639px) {
+  .series-vols .queue-row { grid-template-columns: 24px 40px minmax(0, 1fr); }
+  .series-vols .queue-info { grid-column: 3; grid-row: 1; }
+  .series-vols .queue-badges { grid-column: 1 / -1; grid-row: 2; }
+  .series-vols .queue-actions {
+    grid-column: 1 / -1;
+    grid-row: 3;
+    justify-self: stretch;
+    flex-wrap: wrap;
+  }
+  .series-vols .queue-actions .dl-btn { flex: 1 1 0; width: auto; min-width: 0; justify-content: center; }
+  .series-vols .queue-actions .tracks { flex: 1 1 100%; }
+}
+
+/* ── Cover tooltip (shared by /next and the phone list on /) ── */
+#tip {
+  position: absolute;
+  z-index: 240;
+  background: var(--panel2);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 9px 12px;
+  font-size: 0.78rem;
+  color: var(--muted);
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  pointer-events: none;
+  max-width: 320px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.45);
+}
+#tip strong { color: var(--text); font-size: 0.82rem; }
+
+/* ── Phone: 2-up book grid, rows for the list view ── */
+@media (max-width: 639px) {
+  .grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px 10px; padding: 12px; }
+  .card { padding: 7px; border-radius: 18px; }
+  .card-body { padding: 7px 2px 2px; gap: 5px; }
+  .card .title { font-size: 0.82rem; }
+  .card .author { font-size: 0.72rem; }
+  .card .chip { font-size: 0.62rem; padding: 2px 7px; }
+  .grid.phone-list { display: block; padding: 12px; }
+  /* No rank column in the library list: cover leads the row. */
+  .phone-list .queue-row { grid-template-columns: 40px minmax(0, 1fr); }
+  .phone-list .queue-cover { grid-column: 1; }
+  .phone-list .queue-info { grid-column: 2; }
+  .phone-list .queue-badges { grid-column: 1 / -1; grid-row: 2; }
+  .phone-list .queue-actions {
+    grid-column: 1 / -1;
+    grid-row: 3;
+    justify-self: stretch;
+  }
+  .phone-list .queue-actions .dl-btn { flex: 1 1 0; width: auto; min-width: 0; justify-content: center; }
+  .phone-list .queue-title { white-space: normal; }
+}
+
+/* ── Edit-details form (book_details.js; book page + /add review card) ── */
+.bd-cover { display: flex; gap: 14px; align-items: center; margin-bottom: 16px; min-width: 0; }
+.bd-cover-thumb {
+  flex: none; width: 60px; aspect-ratio: 2 / 3; border-radius: 8px; overflow: hidden;
+  background: var(--panel2); border: 2px solid var(--border);
+  display: flex; align-items: center; justify-content: center; color: var(--muted);
+}
+.bd-cover-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.bd-cover-side { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.bd-cover-side .bd-cap {
+  font: 700 0.69rem 'Space Mono', monospace;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+}
+.bd-cover-actions { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.bd-form { display: flex; flex-direction: column; gap: 13px; min-width: 0; }
+.bd-row { display: flex; gap: 12px; flex-wrap: wrap; }
+.bd-fld { flex: 1; min-width: 130px; display: flex; flex-direction: column; gap: 5px; }
+.bd-lbl { display: flex; align-items: baseline; gap: 6px; flex-wrap: wrap; }
+.bd-fld.bd-narrow { flex: none; width: 96px; min-width: 0; }
+.bd-fld label {
+  font: 700 0.69rem 'Space Mono', monospace;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+}
+.bd-fld input[type="text"], .bd-fld select {
+  border: 2px solid var(--border);
+  border-radius: 12px;
+  padding: 10px 13px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  font-family: inherit;
+  color: var(--text);
+  background: var(--panel2);
+  min-height: 40px;
+  width: 100%;
+  box-sizing: border-box;
+}
+.bd-fld select {
+  cursor: pointer;
+  appearance: none;
+  background-image: linear-gradient(45deg, transparent 50%, var(--accent) 50%),
+                    linear-gradient(135deg, var(--accent) 50%, transparent 50%);
+  background-position: calc(100% - 16px) 18px, calc(100% - 11px) 18px;
+  background-size: 5px 5px, 5px 5px;
+  background-repeat: no-repeat;
+}
+.bd-fld input:focus, .bd-fld select:focus { border-color: var(--accent); }
+/* 16px on a phone, or iOS zooms the page when a field is focused (/book's Edit dialog, /add). */
+@media (max-width: 639px) { .bd-fld input[type="text"], .bd-fld select { font-size: 1rem; } }
+/* A reset staged but not yet saved. */
+.bd-staged { border-style: dashed !important; opacity: 0.75; }
+.bd-reset { letter-spacing: 0; text-transform: none; }
+.bd-auto { font-size: 0.7rem; color: var(--muted); overflow-wrap: anywhere; }
+.bd-suggest {
+  font-size: 0.8rem; color: var(--text);
+  background: var(--panel2); border: 1px dashed var(--border);
+  border-radius: 12px; padding: 8px 12px;
+}
+.bd-actions { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.bd-save { padding: 9px 18px; font-size: 0.85rem; }
+.bd-status { font-size: 0.78rem; color: var(--muted); }
+.bd-note { color: var(--muted); font-size: 0.85rem; }

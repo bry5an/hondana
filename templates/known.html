@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <!-- include: head title="Known Words — Hondana" -->
+  <link rel="stylesheet" href="/static/known.css">
+</head>
+<body class="layout">
+  <!-- include: shell active=known -->
+    <header>
+      <div class="header-row">
+        <!-- include: header title="Known Words" -->
+      </div>
+    </header>
+
+    <div class="add-wrap">
+
+      <!-- The list every book is measured against, as one line: reviewing it is the page's
+           job, and managing it (import, restore, clear) is rarer, so that lives in the last
+           card. An empty or seeded list grows the seed block under the line. -->
+      <section class="add-card list-strip" id="list-card" aria-labelledby="list-h">
+        <h2 id="list-h" class="sr-only">Your known words</h2>
+        <div class="known-summary" id="known-summary">…</div>
+        <div id="seed-block" hidden>
+          <div id="seed-base">
+            <p>No deck to import? Start from the 10,000 most common
+               <span id="seed-lang-label">English</span> words.</p>
+            <button class="btn" id="seed-btn">Seed common words</button>
+          </div>
+          <div class="status" id="seed-status" role="status"></div>
+
+          <div id="seed-increment" hidden>
+            <p>Seeded through the top <strong id="seed-level"></strong> most common words.
+               <span id="seed-cap-note"></span></p>
+            <button class="btn" id="seed-preview-btn">Preview more words</button>
+            <div id="seed-preview-box" hidden>
+              <div class="seed-preview-words" id="seed-preview-words"></div>
+              <div class="seed-preview-actions">
+                <button class="submit-btn" id="seed-apply-btn">Add these words</button>
+                <button class="ghost-btn" id="seed-preview-cancel">Cancel</button>
+              </div>
+            </div>
+            <div class="status" id="seed-increment-status" role="status"></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Review: mark off what you already know. The page's recurring job. -->
+      <section class="add-card" id="freq-card" aria-labelledby="freq-h">
+        <h2 id="freq-h">Review frequent words</h2>
+        <p class="freq-sub" id="freq-sub">The words your library uses most that aren't on your list, widest reach first.</p>
+        <details class="howto" id="freq-howto" open>
+          <summary>How this works</summary>
+          <p>Most of these are words you've known for years and never made a card for: tick
+             <strong><span class="mi" aria-hidden="true">check</span><span class="sr-only">(I know this word)</span></strong> on those and every
+             book's numbers, and its place in Read Next, get more honest. <strong><span class="mi" aria-hidden="true">block</span><span class="sr-only">(not a word)</span></strong>
+             sets aside a name or a fragment that isn't a word. Tap either again to undo.</p>
+        </details>
+        <div class="freq-tools">
+          <div class="freq-filters" id="freq-filters" hidden>
+            <button type="button" data-filter="all" class="active" aria-pressed="true">All</button>
+            <button type="button" data-filter="loan" aria-pressed="false" title="Katakana loanwords (外来語)">Loanwords</button>
+          </div>
+          <label class="freq-page">Rows per page
+            <select id="freq-page-size">
+              <option value="100">100</option>
+              <option value="250">250</option>
+              <option value="500">500</option>
+            </select>
+          </label>
+          <button type="button" class="ghost-btn" id="freq-bulk" hidden></button>
+        </div>
+        <p class="freq-keys" id="freq-keys" hidden>Keyboard: <kbd>↑</kbd> <kbd>↓</kbd> move
+           between words · <kbd>K</kbd> known · <kbd>N</kbd> not a word · <kbd>U</kbd> undo</p>
+        <a class="freq-skip" id="freq-skip" href="#freq-after" hidden>Skip the word list</a>
+        <div class="freq-wrap" id="freq-wrap">
+          <div class="freq-empty" id="freq-loading">Scanning your library…</div>
+        </div>
+        <div class="freq-empty" id="freq-note" role="status" aria-live="polite"></div>
+        <!-- The running tally for both buttons; pinned to the bottom of the screen while
+             the list scrolls. -->
+        <div class="freq-status">
+          <div class="mark-status" id="freq-mark-status" role="status"></div>
+          <div class="mark-status" id="freq-skip-status" role="status"></div>
+        </div>
+      </section>
+
+      <!-- Names and fragments set aside from a book's study list -->
+      <section class="add-card" id="aside-card" aria-labelledby="aside-h" hidden>
+        <h2 id="aside-h">Set aside as not a word</h2>
+        <p>Names and fragments you cleared off a book's study list. They count as known in every
+           book and stay out of the lists. Put one back if it was a mistake.</p>
+        <ul class="aside-list" id="aside-list"></ul>
+      </section>
+
+      <!-- Manage: import, restore, clear. The ⋯ (filled by known.js) holds Clear. -->
+      <section class="add-card" id="manage-card" aria-labelledby="manage-h">
+        <div class="card-head" id="manage-head">
+          <h2 id="manage-h">Manage list</h2>
+        </div>
+        <div class="status" id="clear-status" role="status"></div>
+        <details class="manage-fold" id="manage-fold">
+        <summary id="manage-summary">Import or restore a list</summary>
+        <p id="import-intro">Import a jpdb CSV export, an Anki export (TSV/CSV), or a plain list with
+           one word per line. The word must be the first column.</p>
+        <form id="import-form" class="dz-host">
+          <!-- The shared dropzone (STYLE §9): a <label> around a visually hidden input, so Tab
+               reaches the picker and Enter/Space opens it; dropping a file works too. -->
+          <label class="dropzone" id="drop-zone" for="file-input">
+            <input type="file" id="file-input" class="sr-only" name="file" accept=".csv,.tsv,.txt"
+                   aria-labelledby="dz-title dz-browse" aria-describedby="dz-sub chosen-name">
+            <span class="dz-tile"><span class="dz-arrow mi" aria-hidden="true">description</span></span>
+            <span class="dz-text">
+              <span class="dz-title" id="dz-title"><span class="only-hover">Drop</span><span class="no-hover">Choose</span> a word list</span>
+              <span class="dz-sub" id="dz-sub">CSV, TSV or TXT, with the word in the first column</span>
+              <span class="dz-chosen" id="chosen-name"></span>
+            </span>
+            <span class="dz-browse" id="dz-browse">Choose a file</span>
+          </label>
+
+          <div class="field">
+            <label for="paste-input">…or paste words</label>
+            <textarea id="paste-input" placeholder="学校&#10;先生&#10;トンネル" spellcheck="false"></textarea>
+          </div>
+
+          <fieldset class="field">
+            <legend>Format</legend>
+            <div class="radio-group">
+              <label><input type="radio" name="format" value="auto" checked> Auto</label>
+              <label id="fmt-jpdb-label"><input type="radio" name="format" value="jpdb"> jpdb CSV</label>
+              <label><input type="radio" name="format" value="anki"> Anki</label>
+              <label><input type="radio" name="format" value="text"> Plain text</label>
+            </div>
+          </fieldset>
+
+          <fieldset class="field">
+            <legend>Mode</legend>
+            <div class="radio-group">
+              <!-- Merge is the default: a Replace swaps out the whole list, so it is the
+                   deliberate choice and confirms first. -->
+              <label><input type="radio" name="mode" value="merge" checked> Merge into current list</label>
+              <label><input type="radio" name="mode" value="replace"> Replace current list</label>
+            </div>
+          </fieldset>
+
+          <button type="submit" class="submit-btn" id="import-btn" disabled>Import</button>
+        </form>
+        <div class="status" id="import-status" role="status"></div>
+
+        <details class="snapshots" id="snapshots" hidden>
+          <summary>Restore an earlier list <span id="snapshots-n"></span></summary>
+          <p>A copy is saved before every replace-import, Clear and restore (the last 10 are kept).
+             Restoring one swaps it in and keeps the list it replaces, so it can be undone too.</p>
+          <ul class="snapshot-list" id="snapshot-list"></ul>
+          <div class="status" id="snapshot-status" role="status"></div>
+        </details>
+        </details>
+      </section>
+
+    </div>
+
+    <script src="/static/mark.js"></script>
+    <script src="/static/known.js"></script>
+    <script src="/static/nav.js"></script>
+  </div>
+
+</body>
+</html>

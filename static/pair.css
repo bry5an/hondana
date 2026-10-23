@@ -1,0 +1,82 @@
+/* /pair ("Editions"): an overview. Buttons, chips and the row shelf come from app.css
+   (STYLE §7, §8); this file only lays them out. */
+.pair-main { padding: 24px; max-width: 1100px; display: flex; flex-direction: column; gap: 24px; }
+.pair-main:focus { outline: none; }
+@media (max-width: 639px) { .pair-main { padding: 14px; } }
+.pair-main h2 {
+  font: 700 1.05rem 'Baloo 2', 'Hanken Grotesk', sans-serif; color: var(--text); margin: 0 0 10px;
+}
+.pair-main h2:focus { outline: none; }
+.pair-main h2 + .section-hint { margin: -6px 0 10px; font-size: 0.85rem; color: var(--muted); }
+.pair-main .muted { color: var(--muted); font-weight: 400; font-size: 0.85rem; }
+
+.pair-note { margin: 0; padding: 8px 12px; border-left: 4px solid var(--warn); font-size: 0.85rem; background: var(--panel); border-radius: 8px; }
+
+.pair-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 12px; }
+.pair-main .btn { min-height: 36px; }
+@media (max-width: 639px) { .pair-main .btn { min-height: 44px; } }
+
+.book { display: flex; gap: 10px; align-items: center; min-width: 0; }
+.book .thumb {
+  width: 40px; height: 60px; flex: 0 0 40px;
+  background: var(--panel2);
+  border-radius: 4px; object-fit: cover;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 1.1rem; color: var(--muted);
+}
+.book .meta { min-width: 0; }
+.book .bt { font-size: 0.9rem; font-weight: 600; line-height: 1.2; overflow-wrap: anywhere; }
+.book .ba { font-size: 0.8rem; color: var(--muted); overflow-wrap: anywhere; }
+.book .ba .rom { color: var(--accent-ink); }
+
+/* One row: a group that holds both books (and the swap arrow between them), then the
+   action. The group stacks on a phone and the arrow turns to point down at the partner. */
+.ed-row { background: var(--panel); border: 2px solid var(--border); padding: 10px 12px; }
+.ed-row { display: flex; gap: 12px 16px; align-items: center; flex-wrap: wrap; }
+.pair-books { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); gap: 12px; align-items: center; flex: 1 1 360px; min-width: 0; }
+.ed-row .arrow { color: var(--muted); flex: none; }
+.pair-actions { display: flex; gap: 10px; align-items: center; margin-left: auto; }
+@media (max-width: 639px) {
+  .pair-books { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; flex-basis: 100%; }
+  .pair-books .book { width: 100%; }
+  .ed-row .arrow { transform: rotate(90deg); margin-left: 8px; }
+  .pair-actions { margin-left: 0; width: 100%; justify-content: space-between; }
+}
+
+/* A pair row's ⋯ (moreBtn): Unlink lives behind it. Same round button as /known's card heads. */
+.pair-actions .row-menu-btn {
+  flex: none; width: 36px; height: 36px;
+  display: inline-flex; align-items: center; justify-content: center;
+  background: var(--panel); color: var(--muted);
+  border: 2px solid var(--border); border-radius: 999px;
+  font-size: 1.1rem; line-height: 1; cursor: pointer;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+.pair-actions .row-menu-btn:hover:not(:disabled) { background: var(--panel2); color: var(--text); border-color: var(--accent); }
+.pair-actions .row-menu-btn:disabled { opacity: 0.45; cursor: default; }
+@media (max-width: 639px) { .pair-actions .row-menu-btn { width: 44px; height: 44px; } }
+
+.no-cands { font-size: 0.85rem; color: var(--muted); padding: 4px 0; margin: 0; }
+li.no-cands { list-style: none; }
+
+.section-error { color: var(--danger-ink); display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; }
+.section-error p { margin: 0; flex: 1 1 16rem; font-weight: 600; }
+
+/* Blocked / No other edition: a disclosure whose summary holds a real <h2>, so heading
+   navigation finds it, with a chevron that turns when it opens. 36px tall, 44px on a phone. */
+.pair-main summary {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  min-height: 36px; margin: 0 0 4px; cursor: pointer; list-style: none;
+}
+.pair-main summary::-webkit-details-marker { display: none; }
+.pair-main summary h2 { margin: 0; }
+.pair-main summary .chev { color: var(--muted); transition: transform 0.15s; }
+.pair-main details[open] > summary .chev { transform: rotate(180deg); }
+@media (max-width: 639px) { .pair-main summary { min-height: 44px; } }
+@media (prefers-reduced-motion: reduce) { .pair-main summary .chev { transition: none; } }
+.pair-main details > .no-cands { margin: 0 0 10px; }
+
+.pair-main a.btn { text-decoration: none; display: inline-flex; align-items: center; justify-content: center; }
+
+/* Chips here are status labels, not decoration: keep them above the 11px floor. */
+.pair-main .chip { font-size: 0.72rem; }

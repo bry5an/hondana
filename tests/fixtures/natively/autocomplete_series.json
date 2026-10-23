@@ -1,0 +1,50 @@
+[
+ {
+  "id": "5e1f0a7c2b",
+  "widget": "series",
+  "series": {
+   "title": "星降る町の図書係",
+   "url": "/series/5e1f0a7c2b/",
+   "mediaType": "light_novel_series",
+   "itemType": "book_series",
+   "author": "架空 作者",
+   "language": "jpn",
+   "rating": {
+    "lvl": 25,
+    "temporary": false
+   }
+  }
+ },
+ {
+  "id": "6f2a1b8d3c",
+  "widget": "series",
+  "series": {
+   "title": "星降る町の図書係",
+   "url": "/series/6f2a1b8d3c/",
+   "mediaType": "manga_series",
+   "itemType": "book_series",
+   "author": "架空 作者",
+   "language": "jpn",
+   "rating": {
+    "lvl": 28,
+    "temporary": false
+   }
+  }
+ },
+ {
+  "id": "7a3b2c9e4d",
+  "widget": "series",
+  "series": {
+   "title": "星降る町の図書係 短編集",
+   "url": "/series/7a3b2c9e4d/",
+   "mediaType": "short_story_series",
+   "itemType": "book_series",
+   "author": "架空 作者",
+   "language": "jpn",
+   "rating": {
+    "lvl": 30,
+    "temporary": false
+   }
+  }
+ }
+]

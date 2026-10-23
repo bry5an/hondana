@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <!-- include: head title="Hondana" -->
+</head>
+<body class="layout">
+  <!-- include: shell active=books -->
+    <header>
+      <div class="header-row">
+        <!-- include: header title="Books" -->
+        <span id="count" class="count-badge"></span>
+        <div class="search-box">
+          <span class="search-dot" aria-hidden="true"></span>
+          <input type="search" id="q" placeholder="Search your shelves…" autocomplete="off">
+        </div>
+        <!-- Mobile-only: icon button beside search that collapses the controls
+             row below, so the auto-hide-on-scroll toolbar isn't full of
+             controls every time it reappears. No-op above 639px (nav.js/app.css). -->
+        <button type="button" class="btn toolbar-toggle" id="toolbar-toggle" aria-label="Filters and sort" title="Filters &amp; sort" aria-expanded="false" aria-controls="controls">
+          <span class="mi" aria-hidden="true">tune</span>
+        </button>
+      </div>
+      <div class="controls" id="controls">
+        <!-- Language: segmented pills mirror the hidden #lang select (its value
+             source is what matches() reads, so no filter-logic change). -->
+        <div class="seg" data-for="lang" role="group" aria-label="Language">
+          <button type="button" class="seg-btn active" data-val="">All</button>
+          <button type="button" class="seg-btn" data-val="ja" lang="ja">日本語</button>
+          <button type="button" class="seg-btn" data-val="en">EN</button>
+        </div>
+        <select id="lang" class="sr-only" aria-hidden="true" tabindex="-1">
+          <option value="">All languages</option>
+          <option value="ja">Japanese</option>
+          <option value="en">English</option>
+        </select>
+
+        <label class="sort-pill">
+          <span class="sort-ic mi" aria-hidden="true">sell</span>
+          <select id="genre" aria-label="Genre">
+            <option value="">All genres</option>
+          </select>
+        </label>
+
+        <label class="sort-pill">
+          <span class="sort-ic mi" aria-hidden="true">swap_vert</span>
+          <select id="sort" aria-label="Sort">
+            <option value="title">Title</option>
+            <option value="strain">Least strain</option>
+            <option value="level">Natively level</option>
+            <option value="difficulty">Difficulty</option>
+            <option value="words">Length</option>
+            <option value="known">Known %</option>
+            <option value="author">Author</option>
+          </select>
+        </label>
+
+        <div class="filter-toggles">
+          <label class="chk"><input type="checkbox" id="pairedOnly"> Paired</label>
+          <label class="chk"><input type="checkbox" id="audioOnly"> Has audio</label>
+          <label class="chk"><input type="checkbox" id="hideRead"> Hide read</label>
+        </div>
+
+        <div class="controls-right">
+          <!-- View: Grid/List segmented toggle mirrors the hidden #view select. -->
+          <div class="seg track" data-for="view" role="group" aria-label="View">
+            <button type="button" class="seg-btn active" data-val="cards">Grid</button>
+            <button type="button" class="seg-btn" data-val="table">List</button>
+          </div>
+          <select id="view" class="sr-only" aria-hidden="true" tabindex="-1">
+            <option value="cards">Cards</option>
+            <option value="table">Table</option>
+          </select>
+          <button id="manage-btn" class="btn manage-btn" aria-pressed="false"><span class="mi" aria-hidden="true">edit</span>Edit</button>
+        </div>
+      </div>
+    </header>
+
+    <section id="setup" class="setup-card" aria-labelledby="setup-h" hidden></section>
+
+    <main id="grid" class="grid"></main>
+
+    <div id="tip" hidden></div>
+    <script src="/static/search.js"></script>
+    <script src="/static/app.js"></script>
+    <script src="/static/nav.js"></script>
+  </div>
+
+</body>
+</html>

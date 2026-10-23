@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <!-- include: head title="Admin — Hondana" -->
+  <link rel="stylesheet" href="/static/admin.css">
+</head>
+<body class="layout">
+  <!-- include: shell active=admin -->
+    <header>
+      <div class="header-row">
+        <!-- include: header title="Admin" -->
+      </div>
+    </header>
+
+    <div class="admin-wrap">
+      <div class="admin-col">
+      <div class="admin-card" id="pipeline-card">
+        <h2>Pipeline</h2>
+        <p>
+          Run a stage on the server. One runs at a time, and while it runs
+          nothing else can save changes. Each run leaves a report and a log
+          under <code>data/logs/</code>.
+        </p>
+        <div class="run-status" id="run-status"></div>
+        <div class="sr-only" id="run-announce" role="status" aria-live="polite"></div>
+        <div class="run-all" id="run-all"></div>
+        <div id="stage-groups"></div>
+      </div>
+
+      <div class="admin-card" id="dicts-card">
+        <h2>Dictionaries <span class="prune-count" id="dc-count"></span></h2>
+        <p>
+          The Yomitan dictionaries Hondana for iPhone imports from this server (Jitendex, a
+          monolingual dictionary, pitch and frequency lists). They stay on this server and are
+          never committed or backed up. Uploading a zip with the same file name replaces it, and
+          the app offers the update the next time it refreshes.
+        </p>
+        <div class="dz-host">
+          <label class="dropzone dc-drop" id="dc-drop" for="dc-input">
+            <input type="file" id="dc-input" class="sr-only" accept=".zip,application/zip" multiple
+                   aria-labelledby="dc-title dc-browse" aria-describedby="dc-sub">
+            <span class="dz-text">
+              <span class="dz-title" id="dc-title"><span class="only-hover">Drop</span><span class="no-hover">Choose</span> Yomitan dictionary zips</span>
+              <span class="dz-sub" id="dc-sub">.zip with an index.json · up to 1 GB each</span>
+            </span>
+            <span class="dz-browse" id="dc-browse">Choose .zip files</span>
+          </label>
+        </div>
+        <div class="dc-status" id="dc-status" role="status" aria-live="polite"></div>
+        <div class="prune-list" id="dc-list" tabindex="-1"></div>
+      </div>
+
+      <div class="admin-card" id="sync-queue-card">
+        <h2>Audio sync queue <span class="prune-count" id="sq-count"></span></h2>
+        <p id="sq-intro">
+          Japanese books whose audiobook is on this server but that Hondana for iPhone can't follow yet.
+        </p>
+        <div class="sq-cmd" id="sq-cmd" hidden></div>
+        <div class="prune-list" id="sq-list" tabindex="-1"></div>
+      </div>
+      </div>
+
+      <div class="admin-col">
+      <div class="admin-card">
+        <h2>Prune audiobooks</h2>
+        <p>
+          The catalog lists every book the account has ever owned, including
+          ones you have no intention of reading. Removing a title hides it from
+          the library and the audiobook pages. <strong>No files are deleted</strong>
+          — to reclaim disk space, delete the download from its series page
+          first. Pruning is reversible; restore anything below.
+        </p>
+        <div class="prune-bar">
+          <label class="sr-only" for="prune-q">Filter audiobooks by title, author or series</label>
+          <input type="search" id="prune-q" placeholder="Filter by title, author or series…" autocomplete="off">
+          <label class="prune-chk"><input type="checkbox" id="prune-local"> include downloaded</label>
+        </div>
+        <div class="prune-tools">
+          <span class="prune-count" id="prune-count"></span>
+          <button class="ghost-btn" id="prune-all" type="button" hidden>Select all</button>
+          <button class="sel-chip" id="prune-sel" type="button" hidden></button>
+          <button class="btn" id="prune-btn" type="button" disabled>Remove selected</button>
+        </div>
+        <div class="prune-list" id="prune-list"></div>
+        <button class="ghost-btn prune-more" id="prune-more" type="button" hidden>Show more</button>
+        <!-- Phones only: the toolbar's Remove is ~7000px above the end of the list, so this
+             docks to the foot of the screen while rows are ticked. -->
+        <div class="prune-dock" id="prune-dock" hidden>
+          <span id="prune-dock-n"></span>
+          <button class="btn" id="prune-dock-btn" type="button">Remove selected</button>
+        </div>
+      </div>
+
+      <div class="admin-card">
+        <h2>Pruned audiobooks <span class="prune-count" id="hidden-count"></span></h2>
+        <p>Titles you have removed. Restoring one puts it back in the catalog listing exactly as it was.</p>
+        <div class="prune-list" id="hidden-list" tabindex="-1"></div>
+      </div>
+      </div>
+    </div>
+
+    <script src="/static/admin.js"></script>
+    <script src="/static/admin_sync.js"></script>
+    <script src="/static/admin_dicts.js"></script>
+    <script src="/static/nav.js"></script>
+  </div>
+
+</body>
+</html>

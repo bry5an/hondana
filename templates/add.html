@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <!-- include: head title="Add Book — Hondana" -->
+  <link rel="stylesheet" href="/static/hero.css">
+  <link rel="stylesheet" href="/static/add.css">
+</head>
+<body class="layout">
+  <!-- include: shell active=add -->
+    <header>
+      <div class="header-row">
+        <!-- include: header title="Add Book" -->
+      </div>
+    </header>
+
+    <div class="add-wrap">
+      <!-- Choosing or dropping a file is the commit: uploads start at once, and the zone gives
+           way to the staged card below. -->
+      <form id="upload-form" class="dz-host">
+        <!-- A <label> around a visually hidden input: Tab reaches the picker, Enter/Space opens it,
+             and a click anywhere on the zone does too — no click handler needed. -->
+        <label class="dropzone" id="drop-zone" for="file-input">
+          <input type="file" id="file-input" class="sr-only" name="file" accept=".epub" multiple
+                 aria-labelledby="dz-title dz-browse" aria-describedby="dz-sub">
+          <span class="dz-tile"><span class="dz-arrow mi" aria-hidden="true">arrow_upward</span></span>
+          <span class="dz-text">
+            <span class="dz-title" id="dz-title"><span class="only-hover">Drop</span><span class="no-hover">Choose</span> <span id="dz-promise">a book and see how it reads against your known words</span></span>
+            <span class="dz-sub" id="dz-sub">epub only · up to 100 MB · stays on your server</span>
+          </span>
+          <span class="dz-browse" id="dz-browse">Choose .epub files</span>
+        </label>
+      </form>
+
+      <!-- One row per file while it uploads (name, size, progress, × to cancel), then its outcome. -->
+      <div class="staged-card" id="staged-card" role="group" tabindex="-1" hidden>
+        <div id="batch-series-slot"></div>
+        <div id="upload-queue"></div>
+      </div>
+
+      <!-- Files turned away before anything uploaded; named, and kept while the rest go. -->
+      <div class="status" id="reject-note" role="status" aria-live="polite"></div>
+
+      <!-- Progress, duplicates, errors and the outcome all land here; role=status announces them. -->
+      <div class="status" id="upload-status" role="status" aria-live="polite"></div>
+      <!-- A file that went nowhere: the way back to the picker, under the banner that says why. -->
+      <div class="staged-actions" id="staged-actions"></div>
+      <!-- Short milestone announcements (file chosen, one queue row added / analyzed / failed) that
+           don't belong in the banner. -->
+      <div class="sr-only" id="sr-announce" role="status" aria-live="polite"></div>
+
+      <!-- The verdict-first result, rendered by add.js -->
+      <div id="result"></div>
+
+      <!-- Add from URL (secondary path, folded away) -->
+      <details class="add-card" id="url-card">
+        <summary>…or add from a URL</summary>
+        <p id="url-help">Works with direct <code>.epub</code> links only — not sites that require login.</p>
+        <form id="url-form" class="url-body">
+          <label for="url-input" class="sr-only">Link to an .epub file</label>
+          <input type="url" id="url-input" name="url" required
+                 placeholder="https://example.com/book.epub" autocomplete="off"
+                 aria-describedby="url-help">
+          <!-- Shown (and the button disabled) while an add is still running: a link would tear it down. -->
+          <p id="url-busy" hidden>Wait for the current add to finish, then add a link.</p>
+          <div class="dz-row">
+            <button type="submit" class="submit-btn" id="url-btn">Add to Library</button>
+          </div>
+        </form>
+      </details>
+    </div>
+
+    <script src="/static/book_details.js"></script>
+  <script src="/static/add.js"></script>
+    <script src="/static/nav.js"></script>
+  </div>
+
+</body>
+</html>

@@ -1,0 +1,40 @@
+[
+ {
+  "id": "3c4d5e6f7a",
+  "widget": "item",
+  "item": {
+   "title": "星降る町の図書係3",
+   "url": "/book/3c4d5e6f7a/",
+   "bookType": "light_novel",
+   "itemType": "book",
+   "author": "架空 作者",
+   "language": "jpn",
+   "series": {
+    "title": "星降る町の図書係"
+   },
+   "rating": {
+    "lvl": 25,
+    "temporary": false
+   }
+  }
+ },
+ {
+  "id": "4d5e6f7a8b",
+  "widget": "item",
+  "item": {
+   "title": "星降る町の図書係 3",
+   "url": "/book/4d5e6f7a8b/",
+   "bookType": "manga",
+   "itemType": "book",
+   "author": "架空 作者",
+   "language": "jpn",
+   "series": {
+    "title": "星降る町の図書係"
+   },
+   "rating": {
+    "lvl": 28,
+    "temporary": false
+   }
+  }
+ }
+]

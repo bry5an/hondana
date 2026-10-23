@@ -1,0 +1,48 @@
+# Your configuration and secrets (config.example.toml is the template)
+config.toml
+config.*.toml
+!config.example.toml
+.env
+
+# Everything Hondana generates or you curate: indices, covers, profiles, known
+# words. Per machine; back it up with `cli.py push` (docs/running-a-server.md).
+data/
+
+# Your own books, audiobooks and deck exports, if you keep them in the checkout
+/books/
+/sample_epubs/
+/audiobooks/
+/vocab/
+*.epub
+!tests/fixtures/epubs/*.epub
+*.m4b
+*.m4a
+*.mp3
+*.aax
+*.aaxc
+
+# Python and tools
+.venv/
+venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+dist/
+build/
+
+# Logs and scratch files
+*.log
+log.txt
+list.txt
+
+# Keys and certificates
+*.pem
+*.key
+
+# Editor, OS and local tool state
+.DS_Store
+*.swp
+.claude/settings.local.json
+.claude/scheduled_tasks.lock
+.impeccable/

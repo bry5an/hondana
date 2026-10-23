@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <!-- include: head title="Profile — Hondana" -->
+  <link rel="stylesheet" href="/static/profile.css">
+</head>
+<body class="layout">
+  <a class="skip-link" href="#profile-wrap">Skip to profile</a>
+  <!-- include: shell active=none -->
+    <header>
+      <div class="header-row">
+        <!-- include: header title="Profile" -->
+      </div>
+    </header>
+
+    <main class="profile-wrap" id="profile-wrap" tabindex="-1" aria-busy="true">
+      <p class="profile-loading">Loading your profile…</p>
+    </main>
+    <!-- One persistent polite live region: render() writes what changed here, because a node
+         inserted already filled (role=alert/status) is not reliably announced. -->
+    <div class="sr-only" id="profile-live" role="status" aria-live="polite"></div>
+
+    <script src="/static/profile.js"></script>
+    <script src="/static/nav.js"></script>
+  </div>
+
+</body>
+</html>
