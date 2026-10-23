@@ -1023,20 +1023,22 @@ def api_connect(request: Request, req_cfg: Config = Depends(_request_cfg)) -> JS
     type (this request's own Host, so it is the one that works on this network), the
     `hondana://connect` link the QR code encodes, and the profile the link selects.
     `lan_substituted` is true when the page was opened as localhost and the address was
-    swapped for the machine's LAN one."""
-    url, substituted = discovery_mod.connect_url(request.url.scheme, request.headers.get("host") or "")
+    swapped for the machine's LAN one; `hint` says why the address won't work from a
+    phone, when that is knowable (a container's own address). `public_url` overrides."""
+    url, substituted = discovery_mod.connect_url(request.url.scheme, request.headers.get("host") or "", cfg)
     return JSONResponse({
         "url": url,
         "profile": req_cfg.active_user,
         "link": discovery_mod.connect_link(url, req_cfg.active_user),
         "lan_substituted": substituted,
+        "hint": discovery_mod.connect_hint(url, cfg),
     }, headers={"Cache-Control": "no-cache"})
 
 
 @app.get("/api/connect/qr.svg")
 def api_connect_qr(request: Request, req_cfg: Config = Depends(_request_cfg)) -> Response:
     """The connect link as a QR code, for the phone's camera."""
-    url, _ = discovery_mod.connect_url(request.url.scheme, request.headers.get("host") or "")
+    url, _ = discovery_mod.connect_url(request.url.scheme, request.headers.get("host") or "", cfg)
     svg = discovery_mod.qr_svg(discovery_mod.connect_link(url, req_cfg.active_user))
     return Response(svg, media_type="image/svg+xml", headers={"Cache-Control": "no-cache"})
 

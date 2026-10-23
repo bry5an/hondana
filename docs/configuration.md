@@ -58,6 +58,9 @@ drive that isn't mounted shows up as missing rather than as an empty library.
 | `[discovery] enabled` | `true` | Announce the server over Bonjour (`_hondana._tcp`) so Hondana for iPhone lists it. Set `false` to stop. |
 | `[discovery] advertise_port` | unset | The port to announce. Unset announces `port`, but nothing at all when `host` is `127.0.0.1`. Behind a reverse proxy set it to the proxy's port (e.g. `80`). |
 | `[discovery] advertise_host` | unset | The host name your reverse proxy answers to (e.g. `books.local`), sent in the advert as TXT `host`. Needed when the proxy refuses any other `Host` header, which is what the advert's own name would be. |
+| `[discovery] name` | the hostname | The name Hondana for iPhone lists ("Hondana" in a container, where the hostname is a random id). |
+| `[discovery] advertise_addresses` | this machine's LAN addresses | IPv4 addresses to announce, when the automatic choice is wrong (Docker, several networks). In the environment: comma-separated. |
+| `public_url` | unset | The address phones should use, shown as the QR code on **Profile**, e.g. `http://192.168.1.20:8000` for Docker's bridge network, or an `https://` Tailscale name. See [networking.md](networking.md). |
 | `[natively] delay` | `0.4` | Seconds between learnnatively.com requests. Please keep it polite. |
 | `[natively] min_score` | `0.55` | Minimum title similarity (0–1) to accept a Natively match. |
 | `[pairing] min_score` | `0.5` | Not used: pairing's thresholds are fixed in `epublib/pairing.py`. Kept so old configs still load. |

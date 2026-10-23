@@ -45,7 +45,7 @@ class Key:
     `default` is a value or a function of the load context."""
     name: str
     field: str
-    kind: str  # path | paths | optpath | str | secret | int | optint | float | bool
+    kind: str  # path | paths | optpath | str | list | secret | int | optint | float | bool
     default: object
     label: str
     group: str  # library | audiobooks | network | metadata | advanced | system
@@ -111,6 +111,16 @@ KEYS: tuple[Key, ...] = (
         restart=True),
     Key("discovery.advertise_host", "discovery_advertise_host", "str", "", "Advertised host name",
         "network", "Behind a reverse proxy that answers to one name: that name.", restart=True),
+    Key("discovery.name", "discovery_name", "str", "", "Server name", "network",
+        "The name Hondana for iPhone lists. Default: this computer's name (\"Hondana\" in a "
+        "container).", restart=True),
+    Key("discovery.advertise_addresses", "discovery_advertise_addresses", "list", [],
+        "Advertised addresses", "network",
+        "The IPv4 addresses to announce, when the automatic choice is wrong (a container, "
+        "several networks). Default: this machine's LAN addresses.", restart=True),
+    Key("public_url", "public_url", "str", "", "Address for phones", "network",
+        "The address the phone's QR code and connect link use, e.g. an https:// Tailscale name. "
+        "Default: the address you opened the page with."),
     Key("data_mirror.publish", "data_mirror_publish", "bool", False, "Back up with cli.py push",
         "system", file_only=True, gui=False),
     Key("data_mirror.path", "data_mirror_path", "optpath", None, "Backup repo clone", "system",
@@ -209,6 +219,13 @@ def coerce(key: Key, value, base: Path):
             return [_path(v, base) for v in items]
         if key.kind in ("str", "secret"):
             return str(value).strip()
+        if key.kind == "list":
+            if isinstance(value, str):
+                text = value.strip()
+                items = json.loads(text) if text.startswith("[") else text.replace(",", " ").split()
+            else:
+                items = list(value)
+            return [str(v).strip() for v in items if str(v).strip()]
         if key.kind == "int":
             return int(value)
         if key.kind == "optint":

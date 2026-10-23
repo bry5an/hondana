@@ -64,6 +64,12 @@ class Config:
     discovery_advertise_port: int | None = None
     # Host name the proxy answers to (TXT `host`), e.g. "books.local"; "" = not sent.
     discovery_advertise_host: str = ""
+    # The name the phone lists ("" = the machine's own) and the addresses to announce
+    # ([] = this machine's LAN addresses), for when the automatic choice is wrong.
+    discovery_name: str = ""
+    discovery_advertise_addresses: list[str] = field(default_factory=list)
+    # The address phones are told to use (QR code, connect link); "" = the request's Host.
+    public_url: str = ""
 
     # Where each value came from (default | file | settings | env), the file read
     # (None when there is none) and the home folder defaults sit under.

@@ -326,9 +326,11 @@ function ankiTypeHtml() {
 function connectHtml() {
   if (!state.connect.ok) return `<div class="stats-card" data-focus="connect" tabindex="-1"><h2>Connect Hondana for iPhone</h2>${errorHtml("connect")}</div>`;
   const c = state.connect.value;
-  const lan = c.lan_substituted
-    ? `<p class="stat-hint">You opened this page as localhost, so this is the address of this computer on your network.</p>`
-    : "";
+  const lan = c.hint
+    ? `<p class="stat-hint">${esc(c.hint)}</p>`
+    : c.lan_substituted
+      ? `<p class="stat-hint">You opened this page as localhost, so this is the address of this computer on your network.</p>`
+      : "";
   return `
     <div class="stats-card connect-card" id="connect" data-focus="connect" tabindex="-1">
       <img class="connect-qr" src="/api/connect/qr.svg" width="176" height="176"

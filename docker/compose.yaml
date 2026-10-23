@@ -1,0 +1,27 @@
+# Hondana with Docker Compose. Copy this file, point the volumes at your own
+# folders, then `docker compose up -d` and open http://<this machine>:8000.
+# See docs/docker.md.
+services:
+  hondana:
+    image: ghcr.io/bry5an/hondana:latest
+    container_name: hondana
+    restart: unless-stopped
+    # Run as the user that owns your folders (`id -u` / `id -g` on the host).
+    user: "${PUID:-1000}:${PGID:-1000}"
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./config:/config            # optional config.toml and .env
+      - ./data:/data                # indices, profiles, known words: back this up
+      - /path/to/EPUBs:/books
+      - /path/to/Audiobooks:/audiobooks
+    environment:
+      TZ: Etc/UTC
+      # The address your phone uses for this server (shown as a QR code on Profile).
+      # Needed with the port mapping above, where the container can't see your LAN address.
+      # HONDANA_PUBLIC_URL: "http://192.168.1.20:8000"
+
+    # Linux only: share the host's network instead of mapping ports, so Hondana
+    # for iPhone finds the server by itself over Bonjour and the QR code is right
+    # without HONDANA_PUBLIC_URL. Delete the `ports:` block when you use this.
+    # network_mode: host
