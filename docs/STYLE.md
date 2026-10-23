@@ -250,6 +250,7 @@ inks were 3.7–4.3:1 at this size; the green, amber and pink were darkened, kee
 | Heavy | `#f4d0cc` / `#a3342b` | `#4a2420` / `#f0b0a6` | `.strain.s-heavy` |
 | Read / paired / genre | `#e6dcf2`·`#ece1f5`·`#e7e0f2` / purple | `#352a4a` / `#c9a6f0` | `.read`, `.pair`, `.genre` |
 | Natively level | `#d9e8f2` / `#2f6a95` | `#23384a` / `#8fc0e0` | `.level` (dashed + faded when unconfirmed) |
+| Needs details (an audiobook known only by its file name) | `#f6e3c9` / `#8b5c1b` | `#4a3a24` / `#e0b878` | `.needs-details` (the caution pair; `audiobooks.css`) |
 
 - Chip budget: **four** per card (language, strain, ✓ known, ✓ Read) so the fixed card height
   holds; everything else goes on the detail page. On a *detail* page the language is implied by the

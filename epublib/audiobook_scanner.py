@@ -377,7 +377,9 @@ def scan(cfg: Config, *, dry_run: bool = False) -> dict:
     prev: dict = load_json(cfg.audiobook_files_index, {})
     assignments: dict = load_json(cfg.audiobook_assignments, {})
     # A row the catalog already has a cover for never shows the file's own.
-    has_cover = {k for k, r in audiobook_catalog.load(cfg, local=False).items() if r.get("cover")}
+    # (Not counting a hand-set cover: a reset falls back to the file's own.)
+    has_cover = {k for k, r in audiobook_catalog.load(cfg, local=False, edits=False).items()
+                 if r.get("cover")}
     tags = _Tags(cfg)
     now = datetime.now(timezone.utc).isoformat(timespec="seconds")
 

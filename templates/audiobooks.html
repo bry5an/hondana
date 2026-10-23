@@ -30,12 +30,14 @@
           <button type="button" class="seg-btn" data-val="local" title="Has at least one local file">Has local</button>
           <button type="button" class="seg-btn" data-val="full" title="Every volume downloaded">Fully local</button>
           <button type="button" class="seg-btn" data-val="missing" title="No local files yet">Audible only</button>
+          <button type="button" class="seg-btn" data-val="details" title="Files whose details were guessed from the file name" hidden>Needs details</button>
         </div>
         <select id="avail" class="sr-only" aria-hidden="true" tabindex="-1">
           <option value="">All</option>
           <option value="local">Has local files</option>
           <option value="full">Fully local</option>
           <option value="missing">Audible only</option>
+          <option value="details">Needs details</option>
         </select>
 
         <label class="sort-pill">

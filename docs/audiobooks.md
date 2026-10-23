@@ -110,6 +110,19 @@ A row looks like this (base-file shape; pulled rows have the same fields where A
 
 Older base rows may be keyed `kikubon N`, `audiobook.jp N` or `dwango N` instead of an ASIN.
 
+## Correcting an audiobook's details
+
+Any audiobook's details can be fixed by hand, whether they came from the catalog, the file's tags
+or its file name. On an audiobook series page, turn on **Edit** and press the pencil on a volume.
+A volume whose details were only guessed from its file name says so in its row and has an **Add
+details** link, and the Audiobooks page's **Needs details** filter lists them all.
+
+The form takes the title, author, narrator, series and volume, genre, release date and
+description, and a cover image. Your values are kept in `data/audiobook_metadata_overrides.json`
+(a cover in `data/covers/audiobooks/custom/`) and win over the catalog and the tags on every
+rescan. **Reset** on a field goes back to the original value. Once a guessed book has a real title
+and author, it is linked to its EPUB like any other.
+
 ## Linking audiobooks to EPUBs
 
 `xref` links each EPUB to its audiobook by title, series, volume number and author. A volume

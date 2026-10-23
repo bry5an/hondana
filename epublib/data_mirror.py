@@ -84,6 +84,11 @@ def push(cfg: Config) -> None:
         for src in sorted(p for p in cfg.custom_covers_dir.iterdir() if p.is_file()):
             _copy(src, mirror_dir / "covers" / "custom" / src.name)
 
+    # Hand-uploaded audiobook covers, likewise (not their thumbnails).
+    if cfg.audiobook_custom_covers_dir.is_dir():
+        for src in sorted(p for p in cfg.audiobook_custom_covers_dir.iterdir() if p.is_file()):
+            _copy(src, mirror_dir / "covers" / "audiobooks" / "custom" / src.name)
+
     # Audiobook alignment SRTs: a Whisper run to make again. The map beside
     # them is derived and left out.
     if cfg.alignments_dir.is_dir():

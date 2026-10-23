@@ -401,6 +401,35 @@ class CatalogEntry(BaseModel):
     local: bool = False
 
 
+class AudiobookDetailsRequest(BaseModel):
+    """Every field is optional: omitted = leave alone, null (or "") = back to
+    what the catalog, the tags or the file name say."""
+    title: str | None = None
+    author: str | None = None
+    series: str | None = None
+    order: str | None = None
+    narrators: str | None = None
+    genre: str | None = None
+    description: str | None = None
+    release_date: str | None = None  # YYYY, YYYY-MM or YYYY-MM-DD
+
+
+class AudiobookDetailsState(BaseModel):
+    ab_id: str
+    values: dict           # what the row shows now (the request's fields)
+    auto: dict             # what it would show with no hand edit
+    overridden: list[str]  # fields with a hand-set value
+    source: str            # catalog | tags | filename (a guess) | manual
+    local: bool
+    path: str | None
+    series_names: list[str]
+    cover: dict            # {"url", "overridden", "auto_url"}
+
+
+class AudiobookDetailsResponse(AudiobookDetailsState):
+    status: str
+
+
 class AudiobookLinkState(BaseModel):
     # "auto" (fuzzy match, or none found), "manual" (pinned to an ISBN) or
     # "none" (hand-unlinked).

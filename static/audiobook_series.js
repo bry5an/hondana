@@ -75,6 +75,26 @@ function confirmVolume(kind, title) {
   return confirmDialog({ ...DIALOG_COPY[kind], message: `"${title}"`, danger: true });
 }
 
+// Edit details: the pencil in Edit mode, or "Add details" on a row whose details
+// were only guessed from its file name (that one shows outside Edit mode too).
+page.addEventListener("click", (e) => {
+  const btn = e.target.closest("[data-edit-ab]");
+  if (!btn) return;
+  AudiobookDetails.open(btn.dataset.editAb, { onClose: (changed, st) => { if (changed.length) afterEdit(st); } });
+});
+
+// An edit can move the volume to another series (or author): say where it went,
+// and follow it when this page is left empty.
+async function afterEdit(st) {
+  const v = st.values;
+  const series = v.series || v.title || "", author = v.author || "";
+  const href = `/audiobook-series?name=${encodeURIComponent(series)}&author=${encodeURIComponent(author)}`;
+  if (series === SERIES_NAME && author === SERIES_AUTHOR) return load();
+  if (VOLS.length <= 1) { location.href = href; return; }
+  await load();
+  toast(`Moved to ${series}`, "ok", { action: { label: "Open", run: () => { location.href = href; } } });
+}
+
 page.addEventListener("click", async (e) => {
   if (!manage.on) return;
   const menu = e.target.closest(".row-menu-btn[data-ab-id]");
@@ -154,17 +174,27 @@ function volRow(v) {
     `data-ab-id="${esc(v.ab_id)}" data-title="${title}"${v.local ? " data-local=\"1\"" : ""}`,
     `More actions for ${v.title || "(untitled)"}`);
 
+  const name = v.title || "(untitled)";
+  const editBtn = `<button type="button" data-edit-ab="${esc(v.ab_id)}" title="Edit details" ` +
+    `aria-label="${esc(`Edit details: ${name}`)}">${icon("edit")}</button>`;
+  // A guess from the file name is worth fixing now, not only in Edit mode.
+  const guessed = v.source === "filename"
+    ? `<span class="needs-details">Guessed from the file name</span>` +
+      `<button type="button" class="link-btn" data-edit-ab="${esc(v.ab_id)}" ` +
+      `aria-label="${esc(`Add details: ${name}`)}">Add details</button>`
+    : "";
+
   return `<div class="row queue-row${v.local ? "" : " missing"}">
     <span class="queue-rank">${v.order ? esc(v.order) : ""}</span>
     <div class="queue-cover">${cover}</div>
     <div class="queue-info">
-      <span class="queue-title">${title}</span>
-      <div class="queue-sub">${rt ? `<span>${rt}</span>` : ""}</div>
+      <span class="queue-title"${langAttr(v.title)}>${title}</span>
+      <div class="queue-sub">${rt ? `<span>${rt}</span>` : ""}${guessed}</div>
     </div>
     <div class="queue-badges">${strain}${badges.join("")}</div>
     <div class="queue-actions">
       ${volAction(v)}
-      <span class="edit-group">${menuBtn}</span>
+      <span class="edit-group">${editBtn}${menuBtn}</span>
     </div>
   </div>`;
 }

@@ -11,7 +11,16 @@
 .chip.have-some { color: var(--accent); border-color: var(--accent); }
 .chip.have-none { color: var(--ja); border-color: var(--ja); }
 
-/* A folder of MP3 tracks expands in place rather than opening a page. */
+/* Details only guessed from the file name: the caution pair (STYLE.md §8), on a
+   card's chip and in a volume row's sub-line, where "Add details" opens the form. */
+.chip.needs-details { background: #f6e3c9; color: #8b5c1b; }
+body.dark .chip.needs-details { background: #4a3a24; color: #e0b878; }
+.queue-sub .needs-details { color: #8b5c1b; font-weight: 700; }
+body.dark .queue-sub .needs-details { color: #e0b878; }
+.queue-sub .link-btn { font-size: inherit; color: var(--text); }
+@media (max-width: 639px) { .queue-sub .link-btn { padding-block: 8px; margin-block: -8px; } }
+
+/* A folder of tracks expands in place rather than opening a page. */
 .tracks { flex-shrink: 0; }
 .tracks summary {
   cursor: pointer;

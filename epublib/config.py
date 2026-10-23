@@ -254,6 +254,11 @@ class Config:
         return self.covers_dir / "audiobooks"
 
     @property
+    def audiobook_custom_covers_dir(self) -> Path:
+        """Hand-uploaded audiobook covers, by ab_id (audiobook_details.py); mirrored."""
+        return self.audiobook_covers_dir / "custom"
+
+    @property
     def audiobook_assignments(self) -> Path:
         """{fid: catalog key}: the book a file was matched to by hand."""
         return self.data_dir / "audiobook_assignments.json"

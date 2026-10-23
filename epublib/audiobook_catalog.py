@@ -114,23 +114,29 @@ def _apply_overrides(rows: dict, overrides: dict) -> dict:
             continue
         edits = {k: v for k, v in fields.items() if k in EDITABLE}
         row = {**rows[key], **edits}
+        cover = fields.get("cover")  # a hand-set image (audiobook_details.store_cover)
+        if isinstance(cover, dict) and cover.get("ext"):
+            row["cover"] = f"/covers/audiobook/{key}?v={cover.get('v') or 0}"
         if row.get("source") == "filename" and any(edits.get(k) for k in ("title", "author", "series")):
             row["source"] = "manual"  # typed by hand: no longer a guess
         rows[key] = row
     return rows
 
 
-def load(cfg: Config, *, local: bool = True) -> dict:
+def load(cfg: Config, *, local: bool = True, edits: bool = True) -> dict:
     """The full catalog, keyed by ASIN / source id: base rows with the pulled
     rows applied, then (with `local`) a row for every local file none of them
-    knows, keyed by its ab_id, then the hand edits. A fresh dict — safe to mutate.
-    `local=False` is the catalog proper, for consolidate (which names files
-    after their row)."""
+    knows, keyed by its ab_id, then (with `edits`) the hand edits. A fresh dict
+    — safe to mutate. `local=False` is the catalog proper, for consolidate
+    (which names files after their row); `edits=False` is what a row says
+    before anyone corrected it."""
     rows = _merge(load_json(cfg.audiobook_data, {}), load_json(cfg.audiobook_catalog_extra, {}))
     if local:
         for ab_id, entry in load_json(cfg.audiobook_files_index, {}).items():
             if ab_id not in rows:
                 rows[ab_id] = local_row(ab_id, entry)
+    if not edits:
+        return rows
     return _apply_overrides(rows, load_json(cfg.audiobook_metadata_overrides, {}))
 
 

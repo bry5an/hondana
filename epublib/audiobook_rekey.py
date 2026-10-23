@@ -11,8 +11,9 @@ everything kept under the old id:
 - the values of `audiobook_link_overrides.json` (an EPUB pinned to the old id),
 - the `audiobook` field of each `alignments/*.json` map (otherwise
   `align.ensure` refuses it as `audiobook_changed`),
-- the hand-typed details (`audiobook_metadata_overrides.json`) and the Natively
-  match (`natively_levels.json`), never over an entry the new id already has,
+- the hand-typed details (`audiobook_metadata_overrides.json`, with a hand-set
+  cover's image) and the Natively match (`natively_levels.json`), never over an
+  entry the new id already has,
 
 and records `old → new` in `audiobook_aliases.json`, which
 `reader.merge_audio_progress` applies to phone events that still carry the old
@@ -86,6 +87,15 @@ def rekey_audiobook(cfg: Config, old: str, new: str) -> list[str]:
         if isinstance(m, dict) and m.get("audiobook") == old:
             save_json(path, {**m, "audiobook": new})
             touched.append(f"alignments/{path.name}")
+
+    # A hand-set cover's image goes with its flag (moved above, in the overrides).
+    covers = cfg.audiobook_custom_covers_dir
+    for src in covers.glob(f"{old}.*"):
+        dst = covers / f"{new}{src.suffix}"
+        if not dst.exists():
+            src.rename(dst)
+            touched.append(f"covers/audiobooks/custom/{dst.name}")
+    (covers / "thumbs" / f"{old}.webp").unlink(missing_ok=True)
 
     aliases = load_json(cfg.audiobook_aliases, {})
     aliases = {k: (new if v == old else v) for k, v in aliases.items() if k != new}

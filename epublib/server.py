@@ -39,6 +39,7 @@ from . import auth as auth_mod
 from . import align as align_mod
 from . import annotate as annotate_mod
 from . import audiobook_catalog as audiobook_catalog_mod
+from . import audiobook_details as audiobook_details_mod
 from . import audiobook_scanner as audiobook_scanner_mod
 from . import audiobook_xref as xref_mod
 from . import align_jobs as align_jobs_mod
@@ -644,21 +645,21 @@ def cover(book_id: str, full: int = 0) -> FileResponse:
 
 @app.get("/covers/audiobook/{ab_id}")
 def audiobook_cover(ab_id: str, request: Request, full: int = 0):
-    """A local audiobook's own cover (from its tags, or its folder's cover.jpg),
-    as a thumbnail unless `full`. Versioned URLs (audiobook_scanner.cover_url)
-    make it safe to cache for good."""
+    """An audiobook's hand-set cover, else a local file's own (from its tags, or
+    its folder's cover.jpg), as a thumbnail unless `full`. Versioned URLs
+    (audiobook_scanner.cover_url, audiobook_catalog) make it safe to cache for good."""
     entry = _cached_json(cfg.audiobook_files_index, {}).get(ab_id)
-    if not entry:
+    custom = audiobook_details_mod.custom_cover_path(cfg, ab_id)
+    if not entry and not custom:
         moved = _moved_audiobook(ab_id, request, "/covers/audiobook/")
         if moved:
             return moved
-    src = cfg.data_dir / entry["cover"] if entry and entry.get("cover") else None
+    src = custom or (cfg.data_dir / entry["cover"] if entry and entry.get("cover") else None)
     if src is None or not src.exists():
         raise HTTPException(status_code=404, detail="No cover")
     path, media_type = src, None
     if not full:
-        thumb = thumbs_mod.ensure_thumb(cfg.data_dir, ab_id, src,
-                                        cfg.audiobook_covers_dir / "thumbs" / f"{src.stem}.webp")
+        thumb = thumbs_mod.ensure_thumb(cfg.data_dir, ab_id, src, src.parent / "thumbs" / f"{src.stem}.webp")
         if thumb is not None:
             path, media_type = thumb, "image/webp"
     return FileResponse(path, media_type=media_type,
@@ -1843,6 +1844,73 @@ async def reset_book_cover(book_id: str) -> JSONResponse:
             if custom_cover_mod.clear(cfg, book_id):
                 build_mod.build(cfg)
         return {"status": "ok", "job": None, **_book_details_state(book_id)}
+
+    return JSONResponse(await asyncio.to_thread(_run))
+
+
+# ── Audiobook details ────────────────────────────────────────────────────────
+# The same idea as /api/books/{id}/details for an audiobook's catalog row: one
+# Save sends every changed field, kept in audiobook_metadata_overrides.json over
+# whatever the catalog, the tags or the file name said (audiobook_details.py).
+# One request = one rebuild of the audiobook index, the links and the library.
+
+def _require_audiobook(ab_id: str) -> dict:
+    st = audiobook_details_mod.state(cfg, ab_id)
+    if st is None:
+        raise HTTPException(status_code=404, detail="Unknown audiobook")
+    return st
+
+
+@app.get("/api/audiobooks/{ab_id}/details", response_model=schemas.AudiobookDetailsState)
+def get_audiobook_details(ab_id: str) -> dict:
+    return _require_audiobook(ab_id)
+
+
+@app.post("/api/audiobooks/{ab_id}/details", response_model=schemas.AudiobookDetailsResponse)
+async def set_audiobook_details(ab_id: str, payload: schemas.AudiobookDetailsRequest) -> JSONResponse:
+    _require_audiobook(ab_id)
+    sent = {f: getattr(payload, f) for f in payload.model_fields_set}
+
+    def _run() -> dict:
+        with _index_lock:
+            if audiobook_details_mod.apply(cfg, ab_id, sent, _genres()):
+                audiobook_details_mod.rebuild(cfg)
+            return {"status": "ok", **_require_audiobook(ab_id)}
+
+    try:
+        return JSONResponse(await asyncio.to_thread(_run))
+    except audiobook_details_mod.InvalidDetails as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@app.post("/api/audiobooks/{ab_id}/cover", response_model=schemas.AudiobookDetailsResponse)
+async def set_audiobook_cover(ab_id: str, file: UploadFile = File(...)) -> JSONResponse:
+    """Replace the audiobook's cover with an uploaded image (any row, local or not)."""
+    _require_audiobook(ab_id)
+    raw = await file.read(custom_cover_mod.MAX_BYTES + 1)
+
+    def _run() -> dict:
+        with _index_lock:
+            audiobook_details_mod.store_cover(cfg, ab_id, raw)
+            audiobook_details_mod.rebuild(cfg)
+            return {"status": "ok", **_require_audiobook(ab_id)}
+
+    try:
+        return JSONResponse(await asyncio.to_thread(_run))
+    except custom_cover_mod.InvalidCover as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@app.delete("/api/audiobooks/{ab_id}/cover", response_model=schemas.AudiobookDetailsResponse)
+async def reset_audiobook_cover(ab_id: str) -> JSONResponse:
+    """Back to the catalog's cover, or the file's own."""
+    _require_audiobook(ab_id)
+
+    def _run() -> dict:
+        with _index_lock:
+            if audiobook_details_mod.clear_cover(cfg, ab_id):
+                audiobook_details_mod.rebuild(cfg)
+            return {"status": "ok", **_require_audiobook(ab_id)}
 
     return JSONResponse(await asyncio.to_thread(_run))
 

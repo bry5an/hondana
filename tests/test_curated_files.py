@@ -89,6 +89,10 @@ def _seed_curated(cfg):
     cfg.custom_covers_dir.mkdir(parents=True)
     (cfg.custom_covers_dir / "b1.png").write_bytes(b"\x89PNG fake")
     (cfg.covers_dir / "b1.jpg").write_bytes(b"extracted, rebuildable")
+    (cfg.audiobook_custom_covers_dir / "thumbs").mkdir(parents=True)
+    (cfg.audiobook_custom_covers_dir / "B0AAAAAAAA.png").write_bytes(b"\x89PNG hand-set")
+    (cfg.audiobook_custom_covers_dir / "thumbs" / "B0AAAAAAAA.webp").write_bytes(b"derived")
+    (cfg.audiobook_covers_dir / "f0123456789abcd.jpg").write_bytes(b"from tags, rebuildable")
     cfg.alignments_dir.mkdir()
     (cfg.alignments_dir / "b1.srt").write_text("1\n00:00:00,000 --> 00:00:01,000\nx\n")
     (cfg.alignments_dir / "b1.json").write_text("{}")  # derived map
@@ -115,6 +119,7 @@ def test_push_mirrors_the_curated_files_and_nothing_derived(tmp_path, mirror):
         "README",
         *data_mirror.ROOT_FILES,
         "covers/custom/b1.png",
+        "covers/audiobooks/custom/B0AAAAAAAA.png",
         "alignments/b1.srt",
         "users/reader2/known_words.json",
         "users/reader2/read_books.json",

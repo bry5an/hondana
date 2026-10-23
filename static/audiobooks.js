@@ -95,6 +95,8 @@ async function load() {
         : null,
       vols,
       nLocal: vols.filter((v) => v.local).length,
+      // Volumes known only by their file name (audiobook_catalog.local_row).
+      guessed: vols.some((v) => v.source === "filename"),
       cover: vols.map((v) => v.cover_url).find((c) => c) || null,
     };
   });
@@ -110,6 +112,9 @@ async function load() {
     o.textContent = name;
     sel.appendChild(o);
   }
+
+  // "Needs details" is offered only while something does.
+  document.querySelector('.seg[data-for="avail"] [data-val="details"]').hidden = !GROUPS.some((g) => g.guessed);
 
   VS.apply();   // URL → controls, now that the genre options exist
   render();
@@ -131,6 +136,7 @@ function matches(g) {
   if (avail === "local" && g.nLocal === 0) return false;
   if (avail === "full" && g.nLocal !== g.vols.length) return false;
   if (avail === "missing" && g.nLocal !== 0) return false;
+  if (avail === "details" && !g.guessed) return false;
   const genre = el("genre").value;
   if (genre && g.genre !== genre) return false;
   return true;
@@ -173,7 +179,8 @@ function card(g) {
   const lv = levelSticker(g.natively, g.nativelyMeta);
 
   const chips = [];
-  if (g.genre) chips.push(`<span class="chip genre" title="${esc(g.genre)}">${esc(g.genre)}</span>`);
+  if (g.guessed) chips.push(`<span class="chip needs-details" title="Details guessed from the file name: open it to add them">Needs details</span>`);
+  else if (g.genre) chips.push(`<span class="chip genre" title="${esc(g.genre)}">${esc(g.genre)}</span>`);
   chips.push(
     `<span class="chip ${g.nLocal === g.vols.length ? "have-all" : g.nLocal ? "have-some" : "have-none"}">` +
     `${g.nLocal}/${g.vols.length} local</span>`
