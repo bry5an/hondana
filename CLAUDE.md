@@ -46,7 +46,7 @@ Data flow: the catalog (base file + `audiobook_catalog_extra.json`) + `natively_
 ## How to run
 
 ```bash
-uv run cli.py serve                   # or `uv run hondana serve`; reads config.toml (see "Config selection")
+uv run cli.py serve                   # or `uv run hondana serve`; no config needed (see "Config selection")
 uv run cli.py serve --reload          # reloads on Python edits
 ```
 
@@ -58,7 +58,8 @@ The server hot-reads all JSON indices on every request, so pipeline changes are 
 |---|---|
 | `epublib/server.py` | FastAPI app — all routes and request handlers. Pages are a `PAGES` route table (`{path: template}`) registered in a loop; `_render()` caches each expanded page and re-expands only when it or a partial changes on disk. Edit-mode override endpoints (`/genre`, `/title`, `/series`) share `_set_override` + `_save_override` + `_series_value` with `/details` |
 | `epublib/schemas.py` | Pydantic request/response models for the JSON API, backing the `/docs` Swagger UI |
-| `epublib/config.py` | Config dataclass; resolves all paths to absolutes |
+| `epublib/config.py` | The `Config` dataclass (absolute paths, plus `sources`/`config_path`/`home`); `load()` delegates to `settings.py` |
+| `epublib/settings.py` | The settings registry and layered loader: see "Config selection" |
 | `epublib/scanner.py` | Walk `epub_dir`, extract OPF metadata + covers → `epub_library.json`. `SCHEMA_VERSION` (now 4) forces unchanged files to be re-read when the entry shape grows |
 | `epublib/epub_meta.py` | Stdlib OPF parser → `EpubMeta`: title/author/language/identifiers, **plus** `title_reading` / `author_reading` (the `file-as` sort key — EPUB2 `opf:file-as` or EPUB3 `refines` — kept only when it is pure kana, NFKC-normalized), `author_file_as` (raw; the `Last, First` form for Western names, calibre-mangled `玲子, 廣嶋` for Japanese ones), `publisher`, `pub_date` (`YYYY[-MM[-DD]]`), `description` (plain text, ≤5000 chars), and the series with its volume number (`calibre:series` + `series_index`, else the first EPUB3 `belongs-to-collection` of type series + `group-position`; `series_index` is a build-ready order: `"01"`, `"2.5"`) |
 | `epublib/incoming.py` | Files an uploaded/downloaded EPUB (`store_incoming_epub`, shared by `/api/upload` and `/api/acquire`): reads OPF metadata from the bytes, picks `Japanese/`/`English/`/root via `lang.detect`, sanitizes + de-collides the name, and raises `DuplicateEpub` (identical `sha256`, shared ISBN/ASIN, or same cleaned title + author) unless `force` |
@@ -101,13 +102,9 @@ The server hot-reads all JSON indices on every request, so pipeline changes are 
 
 ## Config selection
 
-Priority order for the active config file:
+`epublib/settings.py` is the one definition of every setting (`KEYS`: TOML name, `Config` field, kind, default, GUI label/group, `restart`, `file_only`) and of how a value is chosen. Lowest to highest: the built-in default → the TOML file → the GUI overlay `<data_dir>/settings.json` (`{schema, values: {name: value}}`; `file_only` keys and unknown names in it are ignored with a warning) → a `HONDANA_<NAME>` environment variable (`natively.delay` → `HONDANA_NATIVELY_DELAY`; `audiobook_dirs` takes an `os.pathsep` list or JSON; `google_books_api_key` also reads `GOOGLE_BOOKS_API_KEY`). `Config.sources` records where each field came from (`default|file|settings|env`), plus `config_path` and `home`; `cli.py config [--json]` prints them. **Add a setting by adding a `Key` (and its `Config` field), nowhere else.**
 
-1. `EPUB_LIBRARY_CONFIG` env var (explicit path)
-2. `config.<EPUB_LIBRARY_ENV>.toml` (env defaults to `dev`), if that file exists
-3. `config.toml`
-
-Key config fields: `epub_dir`, `data_dir`, `audiobook_dirs` (list; first entry is the canonical root for consolidation), `host`, `port`, plus `[natively]`, `[pairing]`, `[xref]` threshold sections.
+The file: an explicit path (`--config`, `HONDANA_CONFIG`, `EPUB_LIBRARY_CONFIG`; must exist) → in the checkout, `config.<EPUB_LIBRARY_ENV or dev>.toml` then `config.toml` → `<home>/config.toml` → none (defaults only; no file is not an error). **Home** is `HONDANA_HOME`, else the config file's folder, else the platform app-data folder (`settings.user_home()`). Relative paths resolve against the file's folder. `data_dir`, `epub_dir` and `audiobook_dirs` default under home and are created only when defaulted — a configured path is never created, so an unmounted drive stays visibly missing. `audiobook_data`, `audiobook_natively` and `dicts_dir` default under `data_dir`. `.env` is read from home, then the checkout. Tests are isolated by an autouse fixture in `tests/conftest.py` (`HONDANA_HOME` under `tmp_path`, `settings.ROOT` pointed at an empty folder).
 
 ## Data files (under `data/`)
 

@@ -1,35 +1,57 @@
 # Configuration
 
-Hondana reads one TOML file for its paths and settings, plus an optional `.env` for secrets.
-Start from the template:
+Hondana runs with no configuration at all: everything has a default. To change something,
+set it in one of these places. Each one overrides the ones above it:
 
-```bash
-cp config.example.toml config.toml
-```
+1. **Built-in defaults.** Folders go under Hondana's home folder (below).
+2. **`config.toml`**, a TOML file for the paths and settings you want to pin down. Start from
+   the template: `cp config.example.toml config.toml`.
+3. **Settings saved from the web app**, kept in `<data_dir>/settings.json`.
+4. **Environment variables** named `HONDANA_<KEY>`, e.g. `HONDANA_EPUB_DIR` or
+   `HONDANA_NATIVELY_DELAY` (a table key's dot becomes `_`). Handy for Docker and systemd.
 
-All paths may be absolute or relative to the repo root.
+`uv run cli.py config` prints every setting, its value and which of these it came from.
 
 ## Which file is used
 
 The first that applies wins:
 
 1. `--config PATH` on the command line (`uv run cli.py --config PATH serve`), or the
-   `EPUB_LIBRARY_CONFIG` environment variable.
-2. `config.<env>.toml`, where `<env>` is `EPUB_LIBRARY_ENV` (default `dev`), if it exists. Useful
-   when one checkout serves two setups, e.g. `config.dev.toml` on a laptop.
-3. `config.toml`.
+   `HONDANA_CONFIG` (or older `EPUB_LIBRARY_CONFIG`) environment variable. A file named this way
+   must exist.
+2. In a git checkout: `config.<env>.toml`, where `<env>` is `EPUB_LIBRARY_ENV` (default `dev`), if
+   it exists, then `config.toml`. Useful when one checkout serves two setups.
+3. `config.toml` in Hondana's home folder.
+4. No file: defaults only.
 
-If none exists, every command stops and says which file to create.
+Relative paths in a config file are relative to **the file's own folder**.
+
+## The home folder
+
+Defaults live under one folder:
+
+| | Home folder |
+|---|---|
+| `HONDANA_HOME` is set | that folder |
+| A config file was found | the file's folder (a checkout's `config.toml` → the checkout) |
+| macOS | `~/Library/Application Support/Hondana` |
+| Windows | `%LOCALAPPDATA%\Hondana` |
+| Linux | `$XDG_DATA_HOME/hondana`, i.e. `~/.local/share/hondana` |
+
+Under it: `data/` (the `data_dir`), `books/` (the `epub_dir`) and `audiobooks/` (the one
+`audiobook_dirs` entry), plus an optional `config.toml` and `.env`. Hondana creates these three
+folders when it uses them as defaults. It never creates a folder you configured yourself, so a
+drive that isn't mounted shows up as missing rather than as an empty library.
 
 ## Keys
 
 | Key | Default | What it is |
 |---|---|---|
-| `epub_dir` | `./books` | The folder of `.epub` files, scanned recursively. Books added on **Add** are filed into its `Japanese/` or `English/` subfolder. |
-| `data_dir` | `./data` | Where every generated index, cover and per-profile file is written. Back it up (see [running-a-server.md](running-a-server.md#backups)). |
-| `audiobook_dirs` | `[]` | Folders scanned for audiobooks: `.m4b` files, or a folder of `.mp3`s as one book. The first entry is the *canonical root* that `consolidate` moves files into. |
-| `audiobook_data` | `./data/audiobook_catalog_base.json` | Optional base layer of the audiobook catalog, keyed by Audible ASIN. Leave it absent to start empty (see [audiobooks.md](audiobooks.md)). |
-| `audiobook_natively` | `./data/natively_levels.json` | Natively levels for the audiobook catalog, written by `enrich-audiobooks`. |
+| `epub_dir` | `<home>/books` | The folder of `.epub` files, scanned recursively. Books added on **Add** are filed into its `Japanese/` or `English/` subfolder. |
+| `data_dir` | `<home>/data` | Where every generated index, cover, per-profile file and saved setting is written. Back it up (see [running-a-server.md](running-a-server.md#backups)). Can't be changed from the web app. |
+| `audiobook_dirs` | `["<home>/audiobooks"]` | Folders scanned for audiobooks: `.m4b` files, or a folder of `.mp3`s as one book. The first entry is the *canonical root* that `consolidate` moves files into. In an environment variable, separate folders with `:` (`;` on Windows) or give a JSON list. |
+| `audiobook_data` | `<data_dir>/audiobook_catalog_base.json` | Optional base layer of the audiobook catalog, keyed by Audible ASIN. Leave it absent to start empty (see [audiobooks.md](audiobooks.md)). |
+| `audiobook_natively` | `<data_dir>/natively_levels.json` | Natively levels for the audiobook catalog, written by `enrich-audiobooks`. |
 | `dicts_dir` | `<data_dir>/dicts` | Your Yomitan dictionary zips, served to Hondana for iPhone. |
 | `host` | `0.0.0.0` | Bind address. `0.0.0.0` makes the server reachable from your phone; `127.0.0.1` only from this machine (use that behind a reverse proxy). |
 | `port` | `8000` | Port. |
@@ -40,7 +62,8 @@ If none exists, every command stops and says which file to create.
 | `[natively] min_score` | `0.55` | Minimum title similarity (0–1) to accept a Natively match. |
 | `[pairing] min_score` | `0.5` | Not used: pairing's thresholds are fixed in `epublib/pairing.py`. Kept so old configs still load. |
 | `[xref] min_score` | `0.62` | Minimum title/series similarity to link an audiobook to an EPUB. |
-| `[alignment] subplz_cmd` | `""` | The command that aligns one audio file with a book's text, for audiobook ↔ text sync. See [audio-sync.md](audio-sync.md). Empty on a server without a GPU. |
+| `google_books_api_key` | unset | Google Books API key for genres and descriptions by ISBN (also `GOOGLE_BOOKS_API_KEY`, see below). |
+| `[alignment] subplz_cmd` | `""` | The command that aligns one audio file with a book's text, for audiobook ↔ text sync. See [audio-sync.md](audio-sync.md). Empty on a server without a GPU. The server runs this command, so it can only be set in the config file or the environment, never from the web app. |
 | `[data_mirror] publish` | `false` | Whether `cli.py push` commits your hand-made data to a private git repo. Turn it on only on the machine that holds the real library. |
 | `[data_mirror] path` | unset | The local clone of that repo; required when `publish` is true. See [running-a-server.md](running-a-server.md#backups). |
 
@@ -50,8 +73,8 @@ page (or `GET /api/audiobooks`) isn't empty.
 
 ## `.env` (secrets)
 
-`config.load()` reads `KEY=VALUE` lines from a `.env` at the repo root, if there is one,
-without overriding variables already set. Copy `.env.example`. The key is optional:
+Hondana reads `KEY=VALUE` lines from a `.env` in its home folder and then in the checkout, if
+there is one, without overriding variables already set. Copy `.env.example`. The key is optional:
 
 | Variable | Used by |
 |---|---|

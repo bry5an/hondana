@@ -9,13 +9,31 @@ from __future__ import annotations
 
 import importlib
 import json
+import os
 import sys
 import zipfile
 from pathlib import Path
 
 import pytest
 
+from epublib import settings
 from epublib.config import Config
+
+
+@pytest.fixture(autouse=True)
+def _isolated_settings(tmp_path, monkeypatch):
+    """No test sees the developer's own config, .env or app-data folder: settings
+    lookups go to an empty checkout and home under tmp_path, and anything a test's
+    load() adds to the environment (from a .env) is undone."""
+    saved = dict(os.environ)
+    for name in list(os.environ):
+        if name.startswith(("HONDANA_", "EPUB_LIBRARY_")) or name == "GOOGLE_BOOKS_API_KEY":
+            monkeypatch.delenv(name)
+    monkeypatch.setenv("HONDANA_HOME", str(tmp_path / "home"))
+    monkeypatch.setattr(settings, "ROOT", tmp_path / "root")
+    yield
+    os.environ.clear()
+    os.environ.update(saved)
 
 SAMPLE_EPUBS = Path(__file__).resolve().parent / "fixtures" / "epubs"
 
