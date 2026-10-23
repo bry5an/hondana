@@ -286,6 +286,10 @@ inks were 3.7–4.3:1 at this size; the green, amber and pink were darkened, kee
   dashed 2.5px, 18px radius; coral tile with an ink (`--on-accent`) glyph; a dark `.dz-browse` button; border →
   `--accent` on drag; "Drop" only on hover devices (`.only-hover` / `.no-hover`). Put it in a `.dz-host` form so
   the button takes its own row below 540px.
+- **Settings fields** (`.set-fld`, `settings.css`): label, control, then a row of small neutral chips saying where the
+  value comes from (`.set-src`; "Saved here" in the accent tint, "Set by ENV" dashed and the control disabled,
+  "Restart to apply" in the caution pair) with quiet `.link-btn` actions (Check folder, Reset), then helper text.
+  One Save (primary) per card; a locked field still shows its value.
 - Radio groups are a `<fieldset class="field">` with a `<legend>` styled as the field label, never a bare
   `<label>` with no control.
 

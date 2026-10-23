@@ -10,6 +10,8 @@ Usage: hondana <command> [--config PATH]   (or `uv run cli.py …` from a checko
     seed-known [--top-n N]   seed active profile's known words with wordfreq top-N (en/ja)
     serve     run the web server
     config [--json]   show every setting, its value and where it came from
+    admin-password set|clear|status   the optional admin password (clear = the way back in)
+    token create|list|revoke   script tokens (Authorization: Bearer) for align-remote and the like
     consolidate [--execute]   unify audiobook dirs (dry-run default)
     recover-moves   re-attach curated state orphaned by moving a file between folders
     gc [--apply]    report (and with --apply remove) data left behind by books no longer in the library
@@ -20,6 +22,7 @@ Each stage is resume-safe; re-running only does the new/changed work.
 from __future__ import annotations
 
 import argparse
+import os
 import signal
 import sys
 import time
@@ -129,7 +132,8 @@ def cmd_align_remote(args):
         return ar.make_plan(server, book, entries, audio, audio_dir)
 
     try:
-        server = ar.Server(ar.find_server(args.server or mine.get("server")))
+        token = args.token or os.environ.get("HONDANA_TOKEN") or mine.get("token") or ""
+        server = ar.Server(ar.find_server(args.server or mine.get("server")), token=token)
         entries = {e["ab_id"]: e for e in server.json("/api/audiobooks")}
         books = ([ar.find_book(server.books(), args.book)] if args.book else ar.candidates(server))
         plans = []
@@ -192,6 +196,69 @@ def cmd_align_remote(args):
         return 130
     print(f"\nElapsed {ar.human_time(time.time() - began)}.")
     return 1 if failed else 0
+
+
+def cmd_admin_password(args):
+    """Set, remove or report the admin password (auth.py). Shell access is the way
+    back in when it's forgotten, so `clear` asks for nothing."""
+    import getpass
+
+    from epublib import auth as auth_mod
+
+    cfg = config_mod.load(args.config)
+    if args.action == "status":
+        if auth_mod.password_set(cfg):
+            print("Admin password: set")
+        else:
+            print("Admin password: not set (anyone on the network can change things)")
+        return 0
+    if args.action == "clear":
+        auth_mod.clear_password(cfg)
+        print("Admin password removed; every browser is signed out.")
+        return 0
+    if args.stdin:
+        password = sys.stdin.readline().rstrip("\n")
+    else:
+        password = getpass.getpass("New admin password: ")
+        if getpass.getpass("Again: ") != password:
+            print("error: the two don't match", file=sys.stderr)
+            return 2
+    try:
+        auth_mod.set_password(cfg, password)
+    except ValueError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    print("Admin password set; other browsers will need it next time.")
+    return 0
+
+
+def cmd_token(args):
+    """Script tokens for `Authorization: Bearer` (align-remote --token)."""
+    import datetime as dt
+
+    from epublib import auth as auth_mod
+
+    cfg = config_mod.load(args.config)
+    if args.action == "create":
+        row, token = auth_mod.create_token(cfg, args.name or "")
+        print(f"Token {row['id']} ({row['name']}): {token}")
+        print("It isn't shown again.")
+        return 0
+    if args.action == "revoke":
+        if not args.name or not auth_mod.revoke_token(cfg, args.name):
+            print("error: no token with that id (see `token list`)", file=sys.stderr)
+            return 2
+        print(f"Revoked {args.name}.")
+        return 0
+    rows = auth_mod.list_tokens(cfg)
+    if not rows:
+        print("No tokens.")
+    for r in rows:
+        made = dt.datetime.fromtimestamp(r["created_at"]).strftime("%Y-%m-%d")
+        used = (dt.datetime.fromtimestamp(r["last_used"]).strftime("%Y-%m-%d")
+                if r.get("last_used") else "never")
+        print(f"  {r['id']}  {r['name']}  (made {made}, last used {used})")
+    return 0
 
 
 def cmd_config(args):
@@ -289,6 +356,9 @@ def main(argv=None):
         help="Align a server's audiobook here: fetch its text and audio, run subplz_cmd, upload the SRT",
     )
     p_ar.add_argument("book", nargs="?", help="a book_id on the server, or a title substring")
+    p_ar.add_argument("--token", default=None,
+                      help="a script token, when the server has an admin password "
+                      "(default: HONDANA_TOKEN, else `token` in the align.toml)")
     p_ar.add_argument("--server", default=None,
                       help="the library server (default: `server` in "
                       f"{align_remote_mod.USER_CONFIG}, else the one found on this network)")
@@ -305,6 +375,16 @@ def main(argv=None):
     p_ar.add_argument("--keep-audio", action="store_true",
                       help="keep the downloaded audio after a successful run")
     p_ar.set_defaults(func=cmd_align_remote)
+
+    p_pw = sub.add_parser("admin-password", help="Set, remove or check the admin password")
+    p_pw.add_argument("action", choices=["set", "clear", "status"])
+    p_pw.add_argument("--stdin", action="store_true", help="read the new password from stdin (no prompt)")
+    p_pw.set_defaults(func=cmd_admin_password)
+
+    p_tok = sub.add_parser("token", help="Script tokens for align-remote and other tools")
+    p_tok.add_argument("action", choices=["create", "list", "revoke"])
+    p_tok.add_argument("name", nargs="?", help="create: what it's for; revoke: its id")
+    p_tok.set_defaults(func=cmd_token)
 
     p_conf = sub.add_parser("config", help="Show every setting, its value and where it came from")
     p_conf.add_argument("--json", action="store_true", help="as JSON")

@@ -34,7 +34,8 @@ ENV PATH=/app/.venv/bin:$PATH \
     HONDANA_DATA_DIR=/data \
     HONDANA_EPUB_DIR=/books \
     HONDANA_AUDIOBOOK_DIRS=/audiobooks \
-    HONDANA_IN_CONTAINER=1
+    HONDANA_IN_CONTAINER=1 \
+    HONDANA_SUPERVISED=1
 # Writable by the default user; compose's `user:` (PUID/PGID) needs its own ownership.
 RUN mkdir -p /config /data /books /audiobooks \
  && chown 1000:1000 /config /data /books /audiobooks

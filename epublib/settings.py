@@ -121,6 +121,9 @@ KEYS: tuple[Key, ...] = (
     Key("public_url", "public_url", "str", "", "Address for phones", "network",
         "The address the phone's QR code and connect link use, e.g. an https:// Tailscale name. "
         "Default: the address you opened the page with."),
+    Key("trusted_origins", "trusted_origins", "list", [], "Trusted origins", "system",
+        "Extra browser origins allowed to make changes, e.g. a proxy that rewrites Host.",
+        file_only=True, gui=False),
     Key("data_mirror.publish", "data_mirror_publish", "bool", False, "Back up with cli.py push",
         "system", file_only=True, gui=False),
     Key("data_mirror.path", "data_mirror_path", "optpath", None, "Backup repo clone", "system",
@@ -271,6 +274,66 @@ def read_overlay(data_dir: Path) -> dict:
     except (OSError, ValueError) as exc:
         print(f"settings: ignoring {path} ({exc})", file=sys.stderr)
         return {}
+
+
+def save_overlay(data_dir: Path, values: dict) -> None:
+    """Write the GUI's saved values (the whole `{name: value}` map)."""
+    from .index_store import save_json
+
+    save_json(overlay_path(data_dir), {"schema": SCHEMA, "values": values})
+
+
+def env_locked(key: Key) -> str | None:
+    """The environment variable that sets `key`, if one does (the GUI can't change it)."""
+    found = _env_value(key)
+    if found is _MISSING:
+        return None
+    return next(n for n in (key.env, *key.env_aliases) if n in os.environ)
+
+
+def to_json(key: Key, value):
+    """A typed value as the overlay stores it."""
+    if key.kind == "paths":
+        return [str(p) for p in value]
+    if isinstance(value, Path):
+        return str(value)
+    return value
+
+
+def validate(key: Key, value) -> str | None:
+    """Why a value can't be saved from the GUI, or None. Paths must already exist:
+    the GUI never creates a folder (it may be an unmounted drive)."""
+    import ipaddress
+
+    if key.kind == "path":
+        return None if value.is_dir() else f"No folder at {value}"
+    if key.kind == "paths":
+        if not value:
+            return "Give at least one folder"
+        missing = [str(p) for p in value if not p.is_dir()]
+        return f"No folder at {', '.join(missing)}" if missing else None
+    if key.name == "port" and not 1 <= value <= 65535:
+        return "A port is a number from 1 to 65535"
+    if key.name == "discovery.advertise_port" and value is not None and not 1 <= value <= 65535:
+        return "A port is a number from 1 to 65535"
+    if key.name == "host":
+        try:
+            ipaddress.ip_address(value)
+        except ValueError:
+            return "Use an IP address such as 0.0.0.0 or 127.0.0.1"
+    if key.name.endswith("min_score") and not 0 <= value <= 1:
+        return "A score between 0 and 1"
+    if key.name == "natively.delay" and value < 0:
+        return "Seconds, 0 or more"
+    if key.name == "public_url" and value and not value.startswith(("http://", "https://")):
+        return "Start it with http:// or https://"
+    if key.name == "discovery.advertise_addresses":
+        for a in value:
+            try:
+                ipaddress.IPv4Address(a)
+            except ValueError:
+                return f"{a} isn't an IPv4 address"
+    return None
 
 
 def load(path: Path | str | None = None) -> Config:

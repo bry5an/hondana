@@ -13,6 +13,7 @@ import asyncio
 import gzip
 import html
 import io
+import os
 import re
 import shutil
 import sys
@@ -34,6 +35,7 @@ from starlette.responses import Response
 from starlette.types import Scope
 
 from . import anki_notetype as anki_notetype_mod
+from . import auth as auth_mod
 from . import align as align_mod
 from . import annotate as annotate_mod
 from . import audiobook_catalog as audiobook_catalog_mod
@@ -55,6 +57,7 @@ from . import profiles as profiles_mod
 from . import purge as purge_mod
 from . import reader as reader_mod
 from . import scanner as scanner_mod
+from . import settings as settings_mod
 from . import setup_status as setup_status_mod
 from . import schemas
 from . import search_index as search_index_mod
@@ -98,7 +101,13 @@ async def _lifespan(_app: FastAPI):
         await advertiser.stop()
 
 
-app = FastAPI(title="Hondana", lifespan=_lifespan)
+def _auth_gate(request: Request) -> None:
+    """Every route: the cross-site check and, once a password is set, the admin gate
+    (auth.py). Reads the live cfg, so a password set from the CLI applies at once."""
+    auth_mod.gate(lambda: cfg, request)
+
+
+app = FastAPI(title="Hondana", lifespan=_lifespan, dependencies=[Depends(_auth_gate)])
 # /api/audiobooks can be megabytes of JSON; neither uvicorn nor a proxy
 # compresses. Text-only so epub/m4b downloads and range requests stay raw.
 app.add_middleware(TextGZipMiddleware)
@@ -252,6 +261,8 @@ PAGES = {
     "/profile": "profile.html",
     "/known": "known.html",
     "/admin": "admin.html",
+    "/login": "login.html",
+    "/settings": "settings.html",
 }
 
 
@@ -270,6 +281,88 @@ for _path, _template in PAGES.items():
 @app.get("/healthz", response_model=schemas.StatusResponse)
 def healthz() -> dict:
     return {"status": "ok"}
+
+
+# ── admin password (auth.py) ──────────────────────────────────────────────────
+
+_login_throttle = auth_mod.Throttle()
+
+
+def _https(request: Request) -> bool:
+    return request.url.scheme == "https" or request.headers.get("x-forwarded-proto", "").startswith("https")
+
+
+def _with_session(resp: JSONResponse, request: Request) -> JSONResponse:
+    resp.set_cookie(auth_mod.COOKIE, auth_mod.make_session(cfg), max_age=auth_mod.SESSION_DAYS * 86400,
+                    httponly=True, samesite="strict", secure=_https(request), path="/")
+    return resp
+
+
+@app.get("/api/auth/state", response_model=schemas.AuthState)
+def auth_state(request: Request) -> dict:
+    """Whether a password is set, and whether this browser may use the admin pages."""
+    return {"password_set": auth_mod.password_set(cfg), "admin": auth_mod.is_admin(cfg, request)}
+
+
+@app.post("/api/auth/login", response_model=schemas.AuthState)
+def auth_login(payload: schemas.LoginRequest, request: Request) -> JSONResponse:
+    who = request.client.host if request.client else "?"
+    wait = _login_throttle.wait(who)
+    if wait:
+        raise HTTPException(status_code=429, detail=f"Too many tries. Wait {wait} s.",
+                            headers={"Retry-After": str(wait)})
+    stored = auth_mod.state(cfg).get("password")
+    if not stored:
+        return JSONResponse({"password_set": False, "admin": True})
+    if not auth_mod.verify_password(payload.password, stored):
+        _login_throttle.failed(who)
+        raise HTTPException(status_code=401, detail="Wrong password")
+    _login_throttle.succeeded(who)
+    return _with_session(JSONResponse({"password_set": True, "admin": True}), request)
+
+
+@app.post("/api/auth/logout", response_model=schemas.StatusResponse)
+def auth_logout() -> JSONResponse:
+    resp = JSONResponse({"status": "signed_out"})
+    resp.delete_cookie(auth_mod.COOKIE, path="/")
+    return resp
+
+
+@app.post("/api/auth/password", response_model=schemas.AuthState)
+def auth_set_password(payload: schemas.PasswordRequest, request: Request) -> JSONResponse:
+    """Set or change the admin password (the gate already required the old one's
+    session). Changing it signs every other browser out; this one gets a fresh session."""
+    try:
+        auth_mod.set_password(cfg, payload.password)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return _with_session(JSONResponse({"password_set": True, "admin": True}), request)
+
+
+@app.delete("/api/auth/password", response_model=schemas.AuthState)
+def auth_clear_password() -> JSONResponse:
+    auth_mod.clear_password(cfg)
+    resp = JSONResponse({"password_set": False, "admin": True})
+    resp.delete_cookie(auth_mod.COOKIE, path="/")
+    return resp
+
+
+@app.get("/api/auth/tokens", response_model=list[schemas.TokenInfo])
+def auth_tokens() -> list:
+    return auth_mod.list_tokens(cfg)
+
+
+@app.post("/api/auth/tokens", response_model=schemas.TokenCreated)
+def auth_create_token(payload: schemas.TokenCreateRequest) -> dict:
+    row, token = auth_mod.create_token(cfg, payload.name)
+    return {**row, "token": token}
+
+
+@app.delete("/api/auth/tokens/{token_id}", response_model=schemas.StatusResponse)
+def auth_revoke_token(token_id: str) -> dict:
+    if not auth_mod.revoke_token(cfg, token_id):
+        raise HTTPException(status_code=404, detail="No such token")
+    return {"status": "revoked"}
 
 
 # ── pairing review API (LAN-only; writes the overrides file) ─────────────────
@@ -2326,20 +2419,171 @@ def admin_status() -> JSONResponse:
         return JSONResponse({**_admin_run, "now": time.time()})
 
 
-@app.post("/api/admin/run/{stage}", response_model=schemas.AdminRunResponse)
-def admin_run(stage: str) -> JSONResponse:
-    if stage not in ADMIN_STAGES:
-        raise HTTPException(status_code=404, detail=f"Unknown stage: {stage}")
+def _start_stage(stage: str) -> bool:
+    """Start a stage in the admin worker; False when one is already running."""
     with _status_lock:
         if _admin_run["running"]:
-            raise HTTPException(
-                status_code=409,
-                detail=f"'{_admin_run['stage']}' is already running",
-            )
+            return False
         _admin_run.update(
             running=True, stage=stage, label=ADMIN_STAGES[stage][0],
             started_at=time.time(), finished_at=None, ok=None, error=None,
             output=None, log_file=None, tail=None,
         )
     threading.Thread(target=_admin_worker, args=(stage,), daemon=True).start()
+    return True
+
+
+@app.post("/api/admin/run/{stage}", response_model=schemas.AdminRunResponse)
+def admin_run(stage: str) -> JSONResponse:
+    if stage not in ADMIN_STAGES:
+        raise HTTPException(status_code=404, detail=f"Unknown stage: {stage}")
+    if not _start_stage(stage):
+        raise HTTPException(status_code=409, detail=f"'{_admin_run['stage']}' is already running")
     return JSONResponse({"status": "started", "stage": stage})
+
+
+# ── settings (settings.py; the /settings page) ────────────────────────────────
+
+# How long a settings save waits for a running stage before answering 409.
+SETTINGS_LOCK_WAIT = 2.0
+
+
+def _supervised() -> bool:
+    """Something restarts the server when it exits (Docker, systemd, the desktop app)."""
+    flag = os.environ.get("HONDANA_SUPERVISED", "").strip().lower()
+    return flag in ("1", "true", "yes") or bool(os.environ.get("INVOCATION_ID"))
+
+
+def _version() -> str:
+    try:
+        from importlib.metadata import version
+        return version("hondana")
+    except Exception:
+        return "unknown"
+
+
+def _settings_doc() -> dict:
+    """Every GUI setting: its saved value (what a restart would run with), where it
+    came from, whether the GUI may change it, and whether it waits for a restart."""
+    fresh = settings_mod.load(cfg.config_path)
+    fields, pending = [], []
+    for key in settings_mod.KEYS:
+        if not key.gui:
+            continue
+        value = getattr(fresh, key.field)
+        locked = settings_mod.env_locked(key)
+        waiting = key.restart and value != getattr(cfg, key.field)
+        if waiting:
+            pending.append(key.label)
+        secret = key.kind == "secret"
+        fields.append({
+            "key": key.name, "label": key.label, "group": key.group, "kind": key.kind,
+            "help": key.help, "value": "" if secret else settings_mod.to_json(key, value),
+            "is_set": bool(value) if secret else None,
+            "source": fresh.sources.get(key.field, "default"), "env": locked or key.env,
+            "env_locked": bool(locked), "file_only": key.file_only,
+            "editable": not key.file_only and not locked,
+            "restart": key.restart, "restart_pending": waiting,
+        })
+    return {
+        "fields": fields, "restart_pending": pending, "supervised": _supervised(),
+        "config_path": str(cfg.config_path) if cfg.config_path else None,
+        "home": str(cfg.home) if cfg.home else None, "data_dir": str(cfg.data_dir),
+        "version": _version(),
+    }
+
+
+@app.get("/api/settings")
+def settings_get() -> JSONResponse:
+    return JSONResponse(_settings_doc(), headers={"Cache-Control": "no-cache"})
+
+
+@app.put("/api/settings")
+def settings_put(payload: schemas.SettingsUpdate) -> JSONResponse:
+    """Save settings from the GUI (null = back to the file's value or the default).
+    What can apply at once is applied to the running server; a changed library
+    folder starts a scan; the rest says it waits for a restart."""
+    overlay = dict(settings_mod.read_overlay(cfg.data_dir))
+    errors: dict[str, str] = {}
+    for name, value in payload.values.items():
+        key = settings_mod.BY_NAME.get(name)
+        if key is None or not key.gui:
+            errors[name] = "Unknown setting"
+        elif key.file_only:
+            errors[name] = "Can only be set in the config file"
+        elif settings_mod.env_locked(key):
+            errors[name] = f"Set by the {settings_mod.env_locked(key)} environment variable"
+        elif value is None:
+            overlay.pop(name, None)
+        else:
+            try:
+                typed = settings_mod.coerce(key, value, cfg.home or cfg.data_dir)
+            except settings_mod.SettingError as exc:
+                errors[name] = str(exc)
+                continue
+            problem = settings_mod.validate(key, typed)
+            if problem:
+                errors[name] = problem
+            else:
+                overlay[name] = settings_mod.to_json(key, typed)
+    if errors:
+        first = next(iter(errors.items()))
+        return JSONResponse({"detail": f"{first[0]}: {first[1]}", "errors": errors}, status_code=400)
+
+    if not _index_lock.acquire(timeout=SETTINGS_LOCK_WAIT):
+        raise HTTPException(status_code=409, detail="A pipeline stage is running; save again when it finishes.")
+    try:
+        settings_mod.save_overlay(cfg.data_dir, overlay)
+        fresh = settings_mod.load(cfg.config_path)
+        applied = []
+        for key in settings_mod.KEYS:
+            if key.restart or key.name == "data_dir":
+                continue
+            new = getattr(fresh, key.field)
+            if new != getattr(cfg, key.field):
+                setattr(cfg, key.field, new)
+                applied.append(key.name)
+        cfg.sources = fresh.sources
+    finally:
+        _index_lock.release()
+
+    started = None
+    if "epub_dir" in applied:
+        started = "scan" if _start_stage("scan") else None
+    elif "audiobook_dirs" in applied:
+        started = "audio-scan" if _start_stage("audio-scan") else None
+    doc = _settings_doc()
+    return JSONResponse({**doc, "applied": applied, "started": started})
+
+
+@app.post("/api/settings/check-path")
+def settings_check_path(payload: schemas.CheckPathRequest) -> dict:
+    """What is at a folder someone is about to save: there, writable, and how many
+    books and audio files it holds (counting stops at 10,000 entries)."""
+    p = Path(payload.path).expanduser()
+    if not p.is_absolute():
+        return {"path": str(p), "exists": False, "is_dir": False, "writable": False,
+                "epubs": 0, "audio": 0, "problem": "Use a full path, starting with /"
+                if os.name != "nt" else "Use a full path, such as D:\\Books"}
+    exists, is_dir = p.exists(), p.is_dir()
+    epubs = audio = 0
+    if is_dir:
+        for i, f in enumerate(p.rglob("*")):
+            if i >= 10_000:
+                break
+            suffix = f.suffix.lower()
+            epubs += suffix == ".epub"
+            audio += suffix in (".m4b", ".mp3", ".m4a")
+    return {"path": str(p), "exists": exists, "is_dir": is_dir,
+            "writable": is_dir and os.access(p, os.W_OK), "epubs": epubs, "audio": audio,
+            "problem": None if is_dir else ("Not a folder" if exists else "No folder there")}
+
+
+@app.post("/api/admin/restart", response_model=schemas.StatusResponse)
+def admin_restart() -> dict:
+    """Exit so the supervisor (Docker, systemd, the desktop app) starts the server again
+    with the saved settings. Refused when nothing would restart it."""
+    if not _supervised():
+        raise HTTPException(status_code=409, detail="Nothing would start Hondana again: restart it yourself.")
+    threading.Timer(0.5, os._exit, args=(75,)).start()
+    return {"status": "restarting"}

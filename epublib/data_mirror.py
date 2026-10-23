@@ -40,6 +40,7 @@ ROOT_FILES = (
     "natively_levels.json",
     "audiobook_link_overrides.json",
     "profiles.json",
+    "settings.json",
 )
 # Per-user files, mirrored from each data/users/<slug>/ preserving the subpath.
 # Everything in a user folder is copied *except* these derived, rebuildable

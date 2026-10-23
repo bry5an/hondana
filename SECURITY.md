@@ -3,8 +3,11 @@
 ## The model
 
 Hondana is meant to run on a home network. **It has no login by default**: anyone who can reach
-its port can browse, download, edit and delete books, and run the indexing pipeline. Keep it on
-your LAN or a private VPN (Tailscale, WireGuard); never forward its port to the internet. See
+its port can browse, download, edit and delete books, and run the indexing pipeline. An optional
+**admin password** (Settings) protects changes to the library and the server; browsing, downloads,
+each reader's own state and the iPhone reader API stay open by design. Cross-site requests that
+change anything are refused whether or not a password is set. Keep it on your LAN or a private VPN
+(Tailscale, WireGuard); never forward its port to the internet. See
 [docs/running-a-server.md](docs/running-a-server.md#security).
 
 ## Reporting a vulnerability

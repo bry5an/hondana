@@ -554,3 +554,43 @@ class ReaderEventsResponse(BaseModel):
     # The new GET /api/reader/vocab ETag.
     etag: str
     books_moved: int = 0   # books whose Known % or strain this changed
+
+
+# ── admin password (auth.py) ──────────────────────────────────────────────────
+
+class AuthState(BaseModel):
+    password_set: bool
+    admin: bool
+
+
+class LoginRequest(BaseModel):
+    password: str
+
+
+class PasswordRequest(BaseModel):
+    password: str
+
+
+class TokenCreateRequest(BaseModel):
+    name: str = ""
+
+
+class TokenInfo(BaseModel):
+    id: str
+    name: str
+    created_at: int
+    last_used: int | None = None
+
+
+class TokenCreated(TokenInfo):
+    token: str
+
+
+# ── settings (settings.py) ────────────────────────────────────────────────────
+
+class SettingsUpdate(BaseModel):
+    values: dict[str, Any]
+
+
+class CheckPathRequest(BaseModel):
+    path: str

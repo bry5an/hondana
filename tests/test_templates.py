@@ -10,7 +10,7 @@ PAGES = sorted(p.name for p in (ROOT / "templates").glob("*.html"))
 
 
 def test_every_page_uses_the_shared_shell(server):
-    assert len(PAGES) == 11
+    assert len(PAGES) == 13
     for name in PAGES:
         src = (ROOT / "templates" / name).read_text(encoding="utf-8")
         for partial in ("head", "shell", "header"):

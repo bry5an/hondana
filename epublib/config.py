@@ -70,6 +70,9 @@ class Config:
     discovery_advertise_addresses: list[str] = field(default_factory=list)
     # The address phones are told to use (QR code, connect link); "" = the request's Host.
     public_url: str = ""
+    # Origins (scheme://host[:port]) besides this server's own allowed to make
+    # changes from a browser (auth.origin_ok).
+    trusted_origins: list[str] = field(default_factory=list)
 
     # Where each value came from (default | file | settings | env), the file read
     # (None when there is none) and the home folder defaults sit under.

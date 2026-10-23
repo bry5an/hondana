@@ -12,6 +12,22 @@ set it in one of these places. Each one overrides the ones above it:
 
 `uv run cli.py config` prints every setting, its value and which of these it came from.
 
+## The Settings page
+
+**Settings** in the sidebar changes the folders, network, online lookups and thresholds without
+touching a file. Each field says where its current value comes from. **Reset** drops what was
+saved there, going back to the config file's value or the default. Saving a library folder starts
+a scan. Host, port and discovery changes wait for a restart; under Docker, systemd or the desktop
+app the page offers a **Restart now** button.
+
+Some values can't be changed there, and the page shows them locked:
+- **Set by an environment variable.** The environment wins; remove the variable first.
+- **Config-file only.** The SubPlz command (the server runs it), the backup settings, and the
+  data folder itself (the saved settings live in it).
+
+The same page sets the optional **admin password**, which keeps Settings, Admin and changes to
+the library to whoever knows it (see [running-a-server.md](running-a-server.md#security)).
+
 ## Which file is used
 
 The first that applies wins:
@@ -68,6 +84,7 @@ drive that isn't mounted shows up as missing rather than as an empty library.
 | `google_books_api_key` | unset | Google Books API key for genres and descriptions by ISBN (also `GOOGLE_BOOKS_API_KEY`, see below). |
 | `[alignment] subplz_cmd` | `""` | The command that aligns one audio file with a book's text, for audiobook ↔ text sync. See [audio-sync.md](audio-sync.md). Empty on a server without a GPU. The server runs this command, so it can only be set in the config file or the environment, never from the web app. |
 | `[data_mirror] publish` | `false` | Whether `cli.py push` commits your hand-made data to a private git repo. Turn it on only on the machine that holds the real library. |
+| `trusted_origins` | `[]` | Extra browser origins (`https://books.example`) allowed to make changes, for a proxy that doesn't forward `Host`. Config file or environment only. |
 | `[data_mirror] path` | unset | The local clone of that repo; required when `publish` is true. See [running-a-server.md](running-a-server.md#backups). |
 
 A wrong path doesn't fail loudly: a missing `audiobook_data` or an `audiobook_dirs` entry that

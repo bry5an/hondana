@@ -36,6 +36,9 @@
 //   analysedBooks(books, lang) / oneBookPerSeries(list)   what Read Next ranks, and its one-book-per-series collapse (/next, /profile)
 //   vocabOf, diffOf, wordsOf, knownPct, hardPct, flowPct, wordsTo98, isRead   book accessors
 //   postJson(url, body, method?)   POST (or `method`) JSON → parsed JSON; throws Error(server `detail`) on a non-2xx
+//   ensureAdmin()          → Promise<boolean>: true when this browser may make admin changes, after asking for
+//                          the password if one is set (XHR uploads call it first; every fetch() asks by itself
+//                          on a 401 `admin_required`, then replays the request)
 //   copyText(text)         copy to the clipboard → Promise<boolean>; also works on the plain-http LAN address,
 //                          where navigator.clipboard doesn't exist
 //   failReason(e)          a failed request in words ("the server hit an error"), for "Couldn't save: …"
@@ -341,6 +344,53 @@ function statusHtml(type, html, glyph) {
     ? `<div class="status-${type}"><span class="status-dot">${icon(glyph)}</span><span>${html}</span></div>`
     : `<div class="status-${type}">${html}</div>`;
 }
+
+// ── Admin password ────────────────────────────────────────────────────────────
+// Once an admin password is set (Settings), a change that needs it answers 401
+// `admin_required`. Every fetch() on every page goes through this wrapper: it asks for
+// the password once (one dialog however many requests failed together), signs in, and
+// replays the request. XHR uploads can't be wrapped, so they call ensureAdmin() first.
+let _signingIn = null;
+
+function signInAdmin() {
+  _signingIn = _signingIn || (async () => {
+    const got = await promptDialog({
+      title: "Admin password",
+      message: "Changing the library needs the admin password.",
+      fields: [{ name: "password", label: "Password", type: "password", required: true }],
+      confirmLabel: "Sign in",
+    });
+    if (!got) return false;
+    const r = await _realFetch("/api/auth/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ password: got.password }),
+    });
+    if (r.ok) return true;
+    const data = await r.json().catch(() => ({}));
+    toast(data.detail || "Wrong password", "error");
+    return false;
+  })().finally(() => { _signingIn = null; });
+  return _signingIn;
+}
+
+async function ensureAdmin() {
+  try {
+    const st = await (await _realFetch("/api/auth/state")).json();
+    return st.admin || signInAdmin();
+  } catch {
+    return true;  // let the request itself report the problem
+  }
+}
+
+const _realFetch = window.fetch.bind(window);
+window.fetch = async function (input, init) {
+  const resp = await _realFetch(input, init);
+  if (resp.status !== 401) return resp;
+  const data = await resp.clone().json().catch(() => null);
+  if (!data || data.detail !== "admin_required" || !(await signInAdmin())) return resp;
+  return _realFetch(input, init);
+};
 
 async function postJson(url, body, method = "POST") {
   const resp = await fetch(url, {
