@@ -16,7 +16,9 @@ finish() {
     docker logs "$name" 2>&1 | tail -60 || true
   fi
   docker rm -f "$name" >/dev/null 2>&1 || true
-  rm -rf "$work"
+  # The container wrote as uid 1000, which the host user may not be: delete through the image.
+  docker run --rm --user 0:0 -v "$work:/w" --entrypoint sh "$image" -c 'rm -rf /w/*' >/dev/null 2>&1 || true
+  rm -rf "$work" 2>/dev/null || true
   exit "$rc"
 }
 trap finish EXIT
