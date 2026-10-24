@@ -417,6 +417,18 @@ def safe_extract(zip_path: Path, dest: Path) -> list[Path]:
         return out
 
 
+def fresh_item_dir(cfg: Config, item_id: str, need: int = 0) -> Path:
+    """An empty `{id}/` in staging for an item that did not arrive as an upload (the inbox),
+    after checking that `need` bytes fit with the usual margin to spare (507 otherwise)."""
+    d = _ensure_staging(cfg)
+    if need and _free(d) < need + FREE_MARGIN:
+        raise UploadError(507, "no_space", "Not enough free space on the audiobook drive for this file")
+    item = item_dir(cfg, item_id)
+    shutil.rmtree(item, ignore_errors=True)
+    item.mkdir()
+    return item
+
+
 def stage_item(cfg: Config, upload_id: str) -> tuple[Path, str]:
     """Turn a finished upload into the folder `intake.file_item` takes: `staging/{id}/` holding
     the audio file, or a zip's tracks. Returns (that folder, the name the upload was sent as).

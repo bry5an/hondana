@@ -7,7 +7,7 @@
 
 const SET_GROUPS = [
   { id: "library", title: "Library", hint: "Where your EPUBs are." },
-  { id: "audiobooks", title: "Audiobooks", hint: "Folders scanned for .m4b files and folders of .mp3s." },
+  { id: "audiobooks", title: "Audiobooks and inbox", hint: "Folders scanned for .m4b files and folders of .mp3s, and an optional folder to drop new books into." },
   { id: "network", title: "Network and phone", hint: "How other devices reach this server. See docs/networking.md." },
   { id: "metadata", title: "Online lookups", hint: "Optional services that fill in genres and descriptions." },
   { id: "advanced", title: "Advanced", hint: "Matching thresholds. The defaults suit most libraries." },
@@ -68,7 +68,7 @@ function fieldHtml(f) {
   else if (f.restart) chips.push(`<span class="set-src">Applies after a restart</span>`);
   const reset = f.source === "settings" && f.editable
     ? `<button type="button" class="link-btn set-reset" data-reset="${esc(f.key)}">Reset</button>` : "";
-  const check = (f.kind === "path" || f.kind === "paths") && f.editable
+  const check = ["path", "paths", "optpath"].includes(f.kind) && f.editable
     ? `<button type="button" class="link-btn set-checkbtn" data-check="${esc(f.key)}">Check folder</button>` : "";
   const lock = f.file_only ? " Only the config file can change it." :
     f.env_locked ? ` Remove ${f.env} to change it here.` : "";
@@ -109,6 +109,7 @@ function readField(f, form) {
   if (f.kind === "list") return el.value.split(/[,\s]+/).map((s) => s.trim()).filter(Boolean);
   if (f.kind === "secret") return el.value.trim() || undefined;  // blank = keep the saved one
   if (f.kind === "optint") return el.value.trim() === "" ? null : Number(el.value);
+  if (f.kind === "optpath") return el.value.trim() || null;  // empty = off
   if (f.kind === "int" || f.kind === "float") return Number(el.value);
   return el.value.trim();
 }
@@ -186,7 +187,9 @@ async function checkFolder(key) {
     try {
       const r = await postJson("/api/settings/check-path", { path });
       if (r.problem) { bad = true; lines.push(`${r.path}: ${r.problem}`); continue; }
-      const what = key === "epub_dir" ? `${fmt(r.epubs)} EPUBs` : `${fmt(r.audio)} audio files`;
+      const what = key === "epub_dir" ? `${fmt(r.epubs)} EPUBs`
+        : key === "inbox.dir" ? `${fmt(r.epubs)} EPUBs, ${fmt(r.audio)} audio files`
+        : `${fmt(r.audio)} audio files`;
       lines.push(`${r.path}: ${what}${r.writable ? "" : ", read-only"}`);
     } catch (err) {
       bad = true;
@@ -225,10 +228,29 @@ function renderAbout() {
       config.toml or the environment. <code>cli.py config</code> lists every setting.</p>`;
 }
 
+// What the inbox is doing, under its field (inbox.py; set aside = in its _failed folder).
+async function renderInboxStatus() {
+  const out = document.querySelector('[data-result="inbox.dir"]');
+  if (!out) return;
+  try {
+    const st = await (await fetch("/api/inbox")).json();
+    if (!st.enabled) return;
+    if (st.problem) { out.className = "set-check-result err"; out.textContent = st.problem; return; }
+    const parts = ["Watching"];
+    if (st.waiting.length) parts.push(`${fmt(st.waiting.length)} waiting for a quiet minute`);
+    if (st.failed) parts.push(`${fmt(st.failed)} set aside in _failed`);
+    const last = st.recent[0];
+    if (last) parts.push(`last: ${last.outcome} ${last.name}`);
+    out.className = "set-check-result ok";
+    out.textContent = parts.join(" · ");
+  } catch (err) { /* the status is a nicety: the field works without it */ }
+}
+
 function render() {
   document.getElementById("settings-cards").innerHTML = SET_GROUPS.map(cardHtml).join("");
   renderRestart();
   renderAbout();
+  renderInboxStatus();
 }
 
 // ── admin password and tokens (auth.py) ───────────────────────────────────────
