@@ -34,9 +34,9 @@ def test_a_second_lock_is_refused_until_the_first_lets_go(tmp_path):
     path = tmp_path / "data" / desktop.LOCK_NAME
     first, second = desktop.InstanceLock(path), desktop.InstanceLock(path)
     assert first.acquire() is True
-    assert path.read_text("ascii") == str(os.getpid())
     assert second.acquire() is False
     first.release()
+    assert path.read_text("ascii") == str(os.getpid())  # not readable while locked, on Windows
     assert second.acquire() is True
     second.release()
     second.release()  # releasing twice is fine
