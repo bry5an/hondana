@@ -331,3 +331,15 @@ body.dark .wait-bar { background: rgba(255, 255, 255, 0.1); }
 #result.editing .result-actions .submit-btn {
   background: none; color: var(--text); border: 2px solid var(--border); padding: 9px 20px;
 }
+
+/* ── Book / Audiobook tabs ─────────────────────────────────────────────
+   Each tab is a panel laid out exactly as the page was before there were two. The audiobook queue
+   reuses the EPUB queue's rows (.uq-*): a bar while the file goes up, the same bar pulsing while
+   the server files it. */
+.add-tabs { align-self: flex-start; }
+.add-panel { display: flex; flex-direction: column; gap: 20px; }
+.add-panel[hidden] { display: none; }
+#audio-queue { display: flex; flex-direction: column; gap: 6px; }
+#audio-queue:empty { display: none; }
+.audio-help { margin: 0; font-size: 0.8rem; line-height: 1.5; color: var(--muted); }
+.audio-help code { font-size: 0.78rem; }

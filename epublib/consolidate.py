@@ -78,17 +78,59 @@ def _part(text: str) -> str:
     return re.sub(r"\s+", " ", _UNSAFE_PATH_CHARS.sub(" ", text)).strip()
 
 
-def _dest_rel(key: str, entry: dict) -> str:
+# A path component is capped at 255 bytes on ext4 and most network shares, and Japanese
+# is three bytes a character; leave room for " (2)" and an extension.
+NAME_BYTES = 200
+_RESERVED_NAME = re.compile(r"^(con|prn|aux|nul|com[1-9]|lpt[1-9])(\..*)?$", re.IGNORECASE)
+
+
+def _clip(text: str, max_bytes: int) -> str:
+    """`text` cut to at most `max_bytes` of UTF-8, on a character boundary."""
+    raw = text.encode("utf-8")
+    if len(raw) <= max_bytes:
+        return text
+    return raw[:max_bytes].decode("utf-8", "ignore").rstrip()
+
+
+def _portable_name(text: str) -> str:
+    """A name every filesystem the library may be shared over accepts: no trailing dot or
+    space (Windows drops them), no reserved device name, never empty, never `.` or `..`,
+    and no leading dot (the scanner skips dot-names, so `.hack` would be filed and never seen)."""
+    text = text.rstrip(" .")
+    if not text or text.startswith(".") or _RESERVED_NAME.match(text):
+        text = f"_{text}"
+    return text
+
+
+def _dest_rel(key: str | None, entry: dict, *, ext: str = ".m4b", folder: bool = False,
+              portable: bool = False) -> str:
     """The canonical relative path for a catalog row: its `new_path` if it has
-    one, else `[Author] Series/[NN] Title [key].m4b` — the layout `new_path` uses."""
+    one, else `[Author] Series/[NN] Title [key].m4b` — the layout `new_path` uses.
+
+    `key` may be None (a book no catalog knows: no ` [key]`). `ext` is the file's
+    extension; `folder` is the same path without it, for a book kept as a folder of
+    tracks. `portable` keeps every component within `NAME_BYTES` and valid on Windows,
+    for names made from tags that nobody has looked at."""
     if entry.get("new_path"):
-        return entry["new_path"]
-    title = _part(entry.get("title") or "") or key
+        rel = entry["new_path"]
+        if folder:
+            return re.sub(r"\.m4b$", "", rel)
+        return rel if ext == ".m4b" else re.sub(r"\.m4b$", ext, rel)
+    title = _part(entry.get("title") or "") or key or "Untitled"
     series = _part(entry.get("series") or "") or title
     author = _part(entry.get("author") or "")
-    folder = f"[{author}] {series}" if author else series
-    order = f"[{entry['order']}] " if entry.get("order") else ""
-    return f"{folder}/{order}{title} [{key}].m4b"
+    order = f"[{_part(str(entry['order']))}] " if entry.get("order") else ""
+    tail = f" [{key}]" if key else ""
+    suffix = "" if folder else ext
+    if portable:
+        author = _clip(author, 80)
+        series = _clip(series, NAME_BYTES - len(author.encode()) - 4)
+        title = _clip(title, max(NAME_BYTES - len((order + tail + suffix).encode()), 16))
+    folder_name = f"[{author}] {series}" if author else series
+    leaf = f"{order}{title}{tail}{suffix}"
+    if portable:
+        folder_name, leaf = _portable_name(folder_name), _portable_name(leaf)
+    return f"{folder_name}/{leaf}"
 
 
 def _dest_for_unmatched(root: Path, path: Path) -> str:

@@ -430,6 +430,28 @@ class AudiobookDetailsResponse(AudiobookDetailsState):
     status: str
 
 
+class AudioUploadRequest(BaseModel):
+    filename: str
+    size: int              # bytes, as the browser's File.size says
+
+
+class AudioUploadState(BaseModel):
+    """Where an upload stands. `offset` is the next byte to send (resume from it). `state` is
+    receiving (offset < size) | received (all bytes in, `complete` not yet called) | queued |
+    running (`step` says what) | done (`result`) | error (`error`, `reason`)."""
+    id: str
+    filename: str | None = None
+    size: int | None = None
+    offset: int = 0
+    chunk_size: int | None = None
+    state: Literal["receiving", "received", "queued", "running", "done", "error"]
+    step: str | None = None
+    error: str | None = None
+    reason: str | None = None
+    # done: {status: filed|duplicate, ab_id, path, title, author, series, needs_details}
+    result: dict | None = None
+
+
 class AudiobookMatchRequest(BaseModel):
     asin: str              # an ASIN, or a pasted Audible link
     rename: bool = False   # also add " [ASIN]" to the file (or folder) name

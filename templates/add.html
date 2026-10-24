@@ -14,6 +14,13 @@
     </header>
 
     <div class="add-wrap">
+      <!-- Two things to add. The tab is remembered in the URL (#audiobook), so a link can open it. -->
+      <div class="seg add-tabs" role="tablist" aria-label="What to add">
+        <button type="button" class="seg-btn active" role="tab" id="tab-epub" aria-controls="panel-epub" aria-selected="true">Book</button>
+        <button type="button" class="seg-btn" role="tab" id="tab-audio" aria-controls="panel-audio" aria-selected="false" tabindex="-1">Audiobook</button>
+      </div>
+
+      <div class="add-panel" id="panel-epub" role="tabpanel" aria-labelledby="tab-epub">
       <!-- Choosing or dropping a file is the commit: uploads start at once, and the zone gives
            way to the staged card below. -->
       <form id="upload-form" class="dz-host">
@@ -67,10 +74,41 @@
           </div>
         </form>
       </details>
+      </div>
+
+      <!-- Audiobooks: big files, sent in resumable chunks (add_audio.js). -->
+      <div class="add-panel" id="panel-audio" role="tabpanel" aria-labelledby="tab-audio" hidden>
+        <form class="dz-host" id="audio-form">
+          <label class="dropzone" id="audio-drop" for="audio-input">
+            <input type="file" id="audio-input" class="sr-only" name="file" multiple
+                   accept=".m4b,.m4a,.mp3,.flac,.opus,.ogg,.zip"
+                   aria-labelledby="audio-dz-title audio-dz-browse" aria-describedby="audio-dz-sub">
+            <span class="dz-tile"><span class="dz-arrow mi" aria-hidden="true">arrow_upward</span></span>
+            <span class="dz-text">
+              <span class="dz-title" id="audio-dz-title"><span class="only-hover">Drop</span><span class="no-hover">Choose</span> audiobooks to add to your library</span>
+              <span class="dz-sub" id="audio-dz-sub">m4b, m4a, mp3, flac, opus or ogg · or a .zip of one book's tracks · stays on your server</span>
+            </span>
+            <span class="dz-browse" id="audio-dz-browse">Choose audiobooks</span>
+          </label>
+        </form>
+
+        <!-- One row per file: sent in chunks, so closing the tab only pauses it. -->
+        <div class="staged-card" id="audio-card" role="group" tabindex="-1" hidden>
+          <div id="audio-queue"></div>
+        </div>
+        <div class="status" id="audio-reject" role="status" aria-live="polite"></div>
+        <p class="audio-help" id="audio-help">
+          Each book is filed as <code>Author/Series/Title</code> from its tags, and matched to Audible if it
+          carries an ASIN. A file with no tags waits in <code>_unsorted</code>, marked <b>Needs details</b> in
+          Audiobooks. Closing this page pauses an upload; choose the same file again to carry on.
+        </p>
+        <div class="sr-only" id="audio-announce" role="status" aria-live="polite"></div>
+      </div>
     </div>
 
     <script src="/static/book_details.js"></script>
   <script src="/static/add.js"></script>
+  <script src="/static/add_audio.js"></script>
     <script src="/static/nav.js"></script>
   </div>
 

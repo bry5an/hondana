@@ -233,7 +233,9 @@ Rules:
 - `.seg` also makes **tabs** when a page shows one of several lists at a time: `/next`'s band
   switcher (`.band-tabs`, `role=tablist`, a `.band-count` chip per tab, sticky under the header).
   Prefer it to stacking long collapsible sections; paging inside a tab appends (`.ghost-btn` "Show
-  10 more"), never folds back.
+  10 more"), never folds back. `/add` uses it for *what you are adding* (Book | Audiobook,
+  `.add-tabs`, `#audiobook` in the URL): each panel (`.add-panel`) is laid out as a page of its own,
+  and the audiobook queue reuses the EPUB queue's rows (`.uq-*`) rather than defining another.
 
 ## 8. Chips and badges
 

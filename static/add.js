@@ -686,10 +686,12 @@ function offerStartOver(row) {
 fileInput.addEventListener('change', () => chooseFiles(fileInput.files));
 // A file dropped anywhere on the page is an add: left to the browser it would navigate to (or
 // download) the EPUB, which is where a second drop after a result used to end up. Only file drags
-// are claimed, so text can still be dropped into the URL field.
+// are claimed, so text can still be dropped into the URL field. While the Audiobook tab is showing
+// the drop is add_audio.js's, not an EPUB add.
 const hasFiles = (e) => e.dataTransfer && [...e.dataTransfer.types].includes('Files');
+const epubTab = document.getElementById('panel-epub');
 window.addEventListener('dragover', (e) => {
-  if (!hasFiles(e)) return;
+  if (!hasFiles(e) || epubTab.hidden) return;
   e.preventDefault();
   dropZone.classList.toggle('drag-over', !dropZone.hidden);
 });
@@ -697,7 +699,7 @@ window.addEventListener('dragleave', (e) => {
   if (!e.relatedTarget) dropZone.classList.remove('drag-over');  // left the window
 });
 window.addEventListener('drop', (e) => {
-  if (!hasFiles(e)) return;
+  if (!hasFiles(e) || epubTab.hidden) return;
   e.preventDefault();
   dropZone.classList.remove('drag-over');
   chooseFiles(e.dataTransfer.files);

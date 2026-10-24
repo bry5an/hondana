@@ -6,7 +6,8 @@
 the `/admin` panel (buttons, tooltips, the "all" run) are both generated from it, so
 adding or reordering a stage is one edit here. `BOOK_CHAIN` is the per-book variant
 that `book_jobs` runs for an uploaded/acquired book: the same stages, minus the
-library-wide scans, with `xref` narrowed to that book (`xref_one`).
+library-wide scans, with `xref` narrowed to that book (`xref_one`). `AUDIO_CHAIN` is what
+`intake` runs after an audiobook is filed.
 
 Stage bodies look their module functions up at call time (`analyze_mod.analyze`, not
 a bound reference) so tests can monkeypatch the module attribute.
@@ -263,6 +264,12 @@ def run_book_chain(cfg: Config, book_ids: str | list[str],
             fn = lambda s=STAGE_BY_ID[name]: s.run(cfg)  # noqa: E731
         steps.append((name, fn))
 
+    return _run_steps(steps, progress)
+
+
+def _run_steps(steps: list[tuple[str, Callable[[], object]]],
+               progress: Callable[[str], None]) -> list[str]:
+    """Attempt every step even if an earlier one raised; the error messages, empty on success."""
     errors: list[str] = []
     for name, fn in steps:
         progress(name)
@@ -272,3 +279,15 @@ def run_book_chain(cfg: Config, book_ids: str | list[str],
             traceback.print_exc()
             errors.append(f"{name}: {type(exc).__name__}: {exc}")
     return errors
+
+
+# What follows a file landing in the audiobook library (`intake`): the same stages as a full
+# run, minus the EPUB ones. `catalog` is the one that asks Audible, and only about ASINs no
+# catalog knows; it swallows its own request errors, so an outage costs the metadata, not the file.
+AUDIO_CHAIN = ("audio-scan", "catalog", "xref", "build")
+
+
+def run_audio_chain(cfg: Config, progress: Callable[[str], None] = lambda step: None) -> list[str]:
+    """Run `AUDIO_CHAIN` once (however many files arrived). Returns the error messages."""
+    steps = [(name, lambda s=STAGE_BY_ID[name]: s.run(cfg)) for name in AUDIO_CHAIN]
+    return _run_steps(steps, progress)
