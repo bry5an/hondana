@@ -177,6 +177,15 @@ def test_the_advertiser_registers_and_then_withdraws(monkeypatch, tmp_path):
     assert FakeZeroconf.registered == [] and FakeZeroconf.closed
 
 
+@pytest.mark.parametrize("name", ["x" * 120, "ハ" * 40, "sat12-bq165-df07a3e5-7465-4ccc-b7c2-9ca3bb7b7591-5EB16A4DC100"])
+def test_a_long_computer_name_still_makes_a_valid_service(name):
+    info = discovery.build_info(discovery.Advert(port=8000, name=name), ["192.0.2.5"])
+    instance = info.name.removesuffix("." + discovery.SERVICE_TYPE)
+    assert len(instance.encode("utf-8")) <= 63 and instance.startswith("Hondana on ")
+    assert len(info.server.removesuffix(".local.").encode("utf-8")) <= 63
+    assert info.properties[b"name"].decode("utf-8") == name  # the phone still lists the whole name
+
+
 def test_a_failure_to_register_never_stops_the_server(monkeypatch, tmp_path):
     class Broken(FakeZeroconf):
         async def async_register_service(self, info):

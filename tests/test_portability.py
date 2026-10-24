@@ -24,7 +24,7 @@ def test_write_bytes_atomic_replaces_the_file_and_leaves_no_temp(tmp_path):
     assert [p.name for p in path.parent.iterdir()] == ["pack.json.gz"]
 
 
-@pytest.mark.skipif(not hasattr(os, "fchmod"), reason="no file modes on this platform")
+@pytest.mark.skipif(os.name == "nt", reason="Windows keeps only the read-only bit")
 def test_write_bytes_atomic_applies_the_mode(tmp_path):
     path = tmp_path / "pack.json.gz"
     write_bytes_atomic(path, b"x")
