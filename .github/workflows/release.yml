@@ -104,7 +104,7 @@ jobs:
         run: Compress-Archive -Path dist\Hondana -DestinationPath "dist\Hondana-${{ steps.version.outputs.version }}-windows-x64-portable.zip"
       - name: Sign the Windows files
         if: runner.os == 'Windows' && env.AZURE_TENANT_ID != ''
-        uses: azure/trusted-signing-action@v1
+        uses: azure/trusted-signing-action@v1.2.0
         with:
           azure-tenant-id: ${{ secrets.AZURE_TENANT_ID }}
           azure-client-id: ${{ secrets.AZURE_CLIENT_ID }}
@@ -118,7 +118,7 @@ jobs:
           timestamp-rfc3161: http://timestamp.acs.microsoft.com
           timestamp-digest: SHA256
 
-      - uses: actions/upload-artifact@v5
+      - uses: actions/upload-artifact@v7
         with:
           name: hondana-${{ matrix.name }}
           path: |
@@ -134,7 +134,7 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/download-artifact@v6
+      - uses: actions/download-artifact@v8
         with:
           path: assets
           merge-multiple: true
