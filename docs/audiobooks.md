@@ -32,6 +32,33 @@ no book for is asked about again after 14 days.
 
 iOS can't play some Audible downloads as they are. See [Files iOS won't play](#files-ios-wont-play).
 
+### Adding audiobooks from the browser
+
+You don't have to copy files into the folder yourself. **Add Book → Audiobook** takes `.m4b`, `.m4a`,
+`.mp3`, `.flac`, `.opus` or `.ogg` files, or a `.zip` holding the tracks of one book, and files them
+for you:
+
+- **It survives a bad connection.** A file goes up in 16 MB pieces. If the connection drops, or you
+  close the page, nothing is lost: choose the same file again and it carries on where it stopped. A
+  connection that goes silent is given up on after a minute and retried.
+- **It is filed like the rest of the library**, in the first folder of `audiobook_dirs`, as
+  `[Author] Series/[NN] Title [ASIN].m4b`. The name comes from the Audible catalog if the ASIN is
+  known, else from the file's tags. Anything that isn't an `.m4b` gets a folder of its own, so two
+  books of one series can never be mistaken for one.
+- **A file with no ASIN and no title tag** waits in `_unsorted/` under its own name and is marked
+  **Needs details** in Audiobooks, where you can fill them in or match it to Audible.
+- **The same book twice** is noticed: the same ASIN with the same size is "Already in your library" and
+  nothing is stored; the same ASIN with a different size is refused (delete the old file first), because
+  only one file per book can be listed.
+- **A zip is one book.** Its tracks are put in play order, and a cover image named `cover`, `folder` or
+  `front` comes along. A zip with paths that climb out of its folder, links, a password, or a size
+  out of all proportion to its contents is refused whole.
+- Once the file is in, Hondana scans, looks up a new ASIN on Audible and links the book to its EPUB, the
+  same steps as **Run full pipeline** for audiobooks.
+
+If you set an admin password, adding audiobooks needs it. An upload you abandon is cleared after a week.
+Behind a reverse proxy, see [the notes on upload limits](networking.md#4-a-reverse-proxy-a-name-without-the-port-optionally-https).
+
 ### Matching a file to an Audible book
 
 A file with no ASIN in its name or tags is a guess from its tags or file name. To say which Audible

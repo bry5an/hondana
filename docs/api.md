@@ -25,10 +25,43 @@ for that default profile.
 | Editing | `GET`/`POST /api/books/{id}/details` (title, author, language, genre, series), `POST`/`DELETE …/cover`, `GET`/`POST`/`DELETE …/audiobook-link`, `GET /api/genres`, series-wide `POST /api/books/genre`, `/api/books/series`, `/api/series/rename` |
 | Editions | `GET /api/books/{id}/edition`, `POST`/`DELETE …/edition/none`, `GET /api/pairing/suggestions`, `POST /api/pairing/link` / `unlink` / `block` / `unblock` |
 | Audiobooks | `GET /api/audiobooks`, `GET /api/audiobook-catalog/search?q=`, `POST /api/audiobooks/hide` / `unhide`, `GET /api/audiobooks/hidden`, `DELETE /api/audiobooks/{ab_id}` (deletes the file), `GET`/`POST /api/audiobooks/{ab_id}/details` (title, author, series, order, narrators, genre, description, release_date; omitted = unchanged, null or "" = back to automatic), `POST`/`DELETE …/cover`, `GET`/`POST`/`DELETE /api/audiobooks/{ab_id}/match` (state; match a local file to an Audible book `{asin, rename?}`, an ASIN or a pasted link; take a hand match back), `GET /api/audible/search?title=&author=&keywords=` (Audible search in the configured store; admin-only once a password is set) |
+| Adding audiobooks | `POST /api/audiobooks/uploads` `{filename, size}`, `PUT …/{id}` (one chunk), `GET …/{id}` (where it stands), `POST …/{id}/complete`, `DELETE …/{id}`: a resumable upload, [below](#audiobook-uploads). Admin-only once a password is set, `GET` included |
 | Search | `GET /api/search?q=&kind=epub\|audiobooks\|catalog` → `{source, ids}` |
 | Profiles | `GET`/`POST /api/profiles`, `POST /api/profiles/active`, `GET /api/profile/read-books`, `DELETE /api/profile/orphan-reads` |
 | Known words | `GET`/`POST`/`DELETE /api/known-words` (import: multipart `file` or `text`, `format`, `mode`), `POST …/mark` / `unmark` / `skip` / `unskip`, `GET …/frequent`, `POST …/seed`, `GET …/snapshots`, `POST …/restore` |
 | Admin | `GET /api/admin/stages`, `GET /api/admin/status`, `POST /api/admin/run/{stage}` |
+
+## Audiobook uploads
+
+An audiobook can be gigabytes, so it is sent as a series of small requests instead of one:
+
+1. `POST /api/audiobooks/uploads` with `{"filename": "Book.m4b", "size": 1234567890}`. `.m4b`, `.m4a`,
+   `.mp3`, `.flac`, `.opus`, `.ogg`, or a `.zip` holding the tracks of one book. Answers `201` with
+   `{id, offset: 0, chunk_size, state: "receiving", …}`. `415` for another kind of file, `413` over
+   32 GB, `507` when the audiobook drive is nearly full, `503` when the audiobook folder isn't there.
+2. `PUT /api/audiobooks/uploads/{id}` with the bytes of one chunk as the raw body and
+   `Content-Range: bytes START-END/TOTAL` (`END` inclusive). A chunk has to start at the upload's
+   current `offset`; send `chunk_size` bytes at a time (any size up to 64 MB is accepted, so a proxy
+   with a small body limit can be accommodated). `200` returns the new `offset`. `409` with
+   `reason: "offset_mismatch"` and the real `offset` means the client lost its place (a response
+   never arrived): carry on from that offset. Bytes are kept as they arrive, so a connection that drops
+   mid-chunk costs only what hadn't arrived, and the newest request for an upload takes over from an
+   older one that stalled.
+3. `GET /api/audiobooks/uploads/{id}` says where it stands whenever a client needs to resume:
+   `state` is `receiving`, `received` (every byte is in), then `queued`, `running` (`step` says what),
+   `done` or `error` once the server is filing it.
+4. `POST /api/audiobooks/uploads/{id}/complete` checks the content is what the name says and queues
+   the filing (`202`). It is idempotent. Poll `GET` for the outcome: `done` carries
+   `result: {status: "filed" | "duplicate", ab_id, path, title, author, series, needs_details}`;
+   `error` carries `error` (words for a person) and `reason` (`conflict`, `unsafe_zip`, `zip_bomb`,
+   `bad_audio`, `mixed_formats`, `several_books`, `no_audio`, `index_failed`, …). `index_failed`
+   means the file is in the library folder and only the index is behind.
+5. `DELETE /api/audiobooks/uploads/{id}` throws away what has arrived (`409` while it is being filed).
+
+Staging is `.hondana-staging/` inside the first `audiobook_dirs` folder, so filing a finished upload is
+a rename. Uploads nobody has touched for a week are cleared at startup. The job state of a finished
+upload is kept in memory: after a server restart `GET` answers `404`, and the book is either in
+`/api/audiobooks` or has to be sent again.
 
 ## Reader API (Hondana for iPhone)
 
