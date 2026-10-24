@@ -53,6 +53,10 @@ dev = [
     "pytest>=9.1.1",
     "ruff>=0.16.10",
 ]
+# Builds the desktop app: `uv sync --extra desktop --group build`, then packaging/hondana.spec.
+build = [
+    "pyinstaller>=6.11",
+]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

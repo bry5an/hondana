@@ -46,3 +46,8 @@ list.txt
 .claude/settings.local.json
 .claude/scheduled_tasks.lock
 .impeccable/
+
+# Desktop build output (packaging/hondana.spec)
+/dist/
+/build/
+/packaging/build/

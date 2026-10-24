@@ -13,6 +13,27 @@ uv run hondana desktop           # or: uv run python -m epublib desktop
 `--no-browser` skips opening the page, `--no-tray` runs without an icon (until Ctrl-C), and
 `--library PATH` is where the first run puts its folders.
 
+## Installing a download
+
+Each [release](https://github.com/bry5an/hondana/releases) has a build for **macOS on Apple
+silicon** (`Hondana-<version>-macos-arm64.dmg`, macOS 12 or later) and **Windows 10/11 on x64**
+(`Hondana-<version>-windows-x64-setup.exe`, or `…-portable.zip` to unzip and run
+`hondana.exe`), with a `SHA256SUMS` file. Intel Macs and Linux: run [from source](../README.md) or
+with [Docker](docker.md).
+
+The builds are **not signed** unless the release notes say so, so your system warns you the first
+time:
+
+- **macOS:** open the disk image and drag Hondana to Applications. If it won't open ("can't be
+  opened because Apple cannot check it"), go to System Settings › Privacy & Security and press
+  **Open Anyway**, or run
+  `xattr -dr com.apple.quarantine /Applications/Hondana.app` once.
+- **Windows:** run the installer (it installs for you alone, no administrator needed). On the blue
+  SmartScreen page press **More info**, then **Run anyway**.
+
+Hondana has no Dock icon on macOS: look for it in the menu bar. To remove it, delete the app (or
+uninstall it from Windows' Installed apps); your data folder stays until you delete it.
+
 ## The first run
 
 With no config file and no saved settings, the app:
