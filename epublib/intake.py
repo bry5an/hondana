@@ -22,6 +22,10 @@ a folder into books: two flac files side by side with no album tag would become 
 the whole batch. Moving files takes no lock (a rename is atomic, and the scanner skips
 staging); only the indexing holds `_index_lock`, the same lock every other writer of `data/`
 takes. Job state is in memory, like `book_jobs`.
+
+The inbox (`inbox.py`) files through the same worker, so a drop and an upload never move files
+at once: `submit()` takes a `Source` in place of an upload id, which stages its own item and is
+told how filing went (it keeps the original until then, so a failure can put it somewhere safe).
 """
 from __future__ import annotations
 
@@ -32,7 +36,7 @@ import traceback
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import ContextManager
+from typing import ContextManager, Protocol
 
 from . import audio_tags, audiobook_catalog, uploads
 from .audiobook_scanner import CATALOG_KEY_RE, _title_from_filename
@@ -169,6 +173,17 @@ def file_item(cfg: Config, staged: Path, original_name: str) -> Filed:
 
 # ── the queue ────────────────────────────────────────────────────────────────
 
+class Source(Protocol):
+    """Where a queued item comes from when it is not an upload."""
+
+    def stage(self) -> tuple[Path, str]:
+        """Make the folder `file_item` takes and return it with the name the item arrived as."""
+
+    def settle(self, filed: Filed | None, error: Exception | None) -> None:
+        """Filing is over: `filed` says how it went, or `error` is why it did not. Called
+        before the staging folder is cleared, so what is left in it can still be rescued."""
+
+
 class IntakeJobs:
     """A FIFO of finished uploads, one worker. Everything queued when it wakes is filed, then
     indexed in one pass (audio-scan, catalog, xref and build are library-wide, so ten books cost
@@ -179,23 +194,34 @@ class IntakeJobs:
         self._lock = lock
         self._queue: queue.Queue[str] = queue.Queue()
         self._state: dict[str, dict] = {}
+        self._sources: dict[str, Source] = {}
         self._worker: threading.Thread | None = None
-        self._mu = threading.Lock()  # guards _state and worker start
+        self._mu = threading.Lock()  # guards _state, _sources and worker start
 
     def enqueue(self, upload_id: str) -> dict:
         """Queue a finished upload. Idempotent: asking again while it is queued, running or
         done returns that state instead of filing it twice."""
         with self._mu:
-            cur = self._state.get(upload_id)
-            if not cur or cur["state"] == "error":
-                self._state[upload_id] = {"state": "queued", "step": None, "error": None,
-                                          "reason": None, "result": None,
-                                          "queued_at": time.time(), "finished_at": None}
-                self._queue.put(upload_id)
-            if self._worker is None or not self._worker.is_alive():
-                self._worker = threading.Thread(target=self._loop, daemon=True, name="intake-jobs")
-                self._worker.start()
-            return dict(self._state[upload_id])
+            return self._put(upload_id)
+
+    def submit(self, job_id: str, source: Source) -> dict:
+        """Queue an item that is not an upload. `job_id` is a fresh 24-hex id (it names the
+        item's staging folder)."""
+        with self._mu:
+            self._sources[job_id] = source
+            return self._put(job_id)
+
+    def _put(self, job_id: str) -> dict:
+        cur = self._state.get(job_id)
+        if not cur or cur["state"] == "error":
+            self._state[job_id] = {"state": "queued", "step": None, "error": None,
+                                   "reason": None, "result": None,
+                                   "queued_at": time.time(), "finished_at": None}
+            self._queue.put(job_id)
+        if self._worker is None or not self._worker.is_alive():
+            self._worker = threading.Thread(target=self._loop, daemon=True, name="intake-jobs")
+            self._worker.start()
+        return dict(self._state[job_id])
 
     def status(self, upload_id: str) -> dict | None:
         with self._mu:
@@ -215,6 +241,18 @@ class IntakeJobs:
     def _end(self, upload_id: str, state: str, **fields) -> None:
         self._set([upload_id], state=state, step=None, finished_at=time.time(), **fields)
         uploads.discard(self._cfg, upload_id)
+
+    def _settle(self, source: Source | None, filed: Filed | None, error: Exception | None) -> None:
+        if source is None:
+            return
+        try:
+            source.settle(filed, error)
+        except Exception:  # noqa: BLE001 — a source's bookkeeping must not stop the queue
+            traceback.print_exc()
+
+    def _fail(self, job_id: str, source: Source | None, exc: Exception, message: str, reason: str) -> None:
+        self._settle(source, None, exc)  # before _end clears the staging folder
+        self._end(job_id, "error", error=message, reason=reason)
 
     def _result(self, f: Filed) -> dict:
         cfg = self._cfg
@@ -239,16 +277,20 @@ class IntakeJobs:
             self._set(batch, state="running", step="filing")
             filed: dict[str, Filed] = {}
             for upload_id in batch:
+                with self._mu:
+                    source = self._sources.pop(upload_id, None)
                 try:
-                    staged, name = uploads.stage_item(self._cfg, upload_id)
+                    staged, name = source.stage() if source else uploads.stage_item(self._cfg, upload_id)
                     filed[upload_id] = file_item(self._cfg, staged, name)
                 except uploads.UploadError as exc:
-                    self._end(upload_id, "error", error=str(exc), reason=exc.code)
+                    self._fail(upload_id, source, exc, str(exc), exc.code)
                 except IntakeError as exc:
-                    self._end(upload_id, "error", error=str(exc), reason=exc.reason)
+                    self._fail(upload_id, source, exc, str(exc), exc.reason)
                 except Exception as exc:  # noqa: BLE001 — never kill the worker
                     traceback.print_exc()
-                    self._end(upload_id, "error", error=f"{type(exc).__name__}: {exc}", reason="error")
+                    self._fail(upload_id, source, exc, f"{type(exc).__name__}: {exc}", "error")
+                else:
+                    self._settle(source, filed[upload_id], None)
 
             new = [u for u, f in filed.items() if f.status == "filed"]
             errors: list[str] = []

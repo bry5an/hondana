@@ -53,6 +53,7 @@ from . import custom_cover as custom_cover_mod
 from . import dicts as dicts_mod
 from . import discovery as discovery_mod
 from . import incoming as incoming_mod
+from . import inbox as inbox_mod
 from . import intake as intake_mod
 from . import known as known_mod
 from . import orphans as orphans_mod
@@ -112,12 +113,14 @@ def _sweep_uploads() -> None:
 async def _lifespan(_app: FastAPI):
     _prewarm_known_review()
     _sweep_uploads()
+    _inbox_watcher.start()
     advertiser = discovery_mod.Advertiser()
     await advertiser.start(cfg)
     try:
         yield
     finally:
         await advertiser.stop()
+        _inbox_watcher.stop()
 
 
 def _auth_gate(request: Request) -> None:
@@ -1406,27 +1409,39 @@ def _duplicate_response(dup: incoming_mod.DuplicateEpub) -> JSONResponse:
     })
 
 
+class _SavedNotIndexed(Exception):
+    """An EPUB is in the library folder but the scan or build after it failed."""
+
+
+def _store_epub(content: bytes, filename: str | None, language: str, force: bool) -> Path:
+    """File one incoming EPUB and index it, under the index lock. Raises what
+    `incoming.store_incoming_epub` raises, or `_SavedNotIndexed` once the file is on disk
+    but the index doesn't know about it yet."""
+    with _index_lock:
+        save_path = incoming_mod.store_incoming_epub(
+            cfg, load_json(cfg.library_index, {}), content, filename, language, force)
+        try:
+            scanner_mod.scan(cfg)
+            build_mod.build(cfg)
+        except Exception as exc:
+            traceback.print_exc()
+            raise _SavedNotIndexed(str(exc)) from exc
+    return save_path
+
+
 def _add_incoming(content: bytes, filename: str | None, language: str, force: bool,
                   defer: bool = False) -> JSONResponse:
     """File one incoming EPUB (upload or acquire), index it, queue its pipeline —
     or, for `defer` (a file in the middle of a multi-file batch), hold it until
     POST /api/books/analyze-batch so the whole batch runs as one pass."""
     try:
-        with _index_lock:
-            save_path = incoming_mod.store_incoming_epub(
-                cfg, load_json(cfg.library_index, {}), content, filename, language, force)
-            try:
-                scanner_mod.scan(cfg)
-                build_mod.build(cfg)
-            except Exception as exc:
-                # The file is already on disk but the index doesn't know about it
-                # yet. Report that as a failure the user can act on, rather than
-                # letting the exception escape as a bare 500 the /add UI can only
-                # guess at.
-                traceback.print_exc()
-                raise HTTPException(status_code=500, detail=f"Saved, but indexing failed: {exc}")
+        save_path = _store_epub(content, filename, language, force)
     except incoming_mod.DuplicateEpub as dup:
         return _duplicate_response(dup)
+    except _SavedNotIndexed as exc:
+        # Report that as a failure the user can act on, rather than letting the exception
+        # escape as a bare 500 the /add UI can only guess at.
+        raise HTTPException(status_code=500, detail=f"Saved, but indexing failed: {exc}")
     except (incoming_mod.UnsafeFilename, ValueError) as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     except OSError as exc:
@@ -2589,6 +2604,23 @@ _book_jobs = book_jobs_mod.BookJobs(cfg, lambda: _index_lock)
 _intake_jobs = intake_mod.IntakeJobs(cfg, lambda: _index_lock)
 # SubPlz runs: hours long, so a lane of their own that never takes _index_lock.
 _align_jobs = align_jobs_mod.AlignJobs(cfg)
+
+
+def _inbox_add_epub(content: bytes, filename: str) -> str | None:
+    """File an EPUB the inbox found, as Add would: stored and indexed under the index lock,
+    then its own pipeline queued. The note, if any, goes in the inbox's recent list."""
+    try:
+        save_path = _store_epub(content, filename, "auto", False)
+    except _SavedNotIndexed as exc:
+        return f"saved, but indexing failed ({exc}); scan from Admin to pick it up"
+    rel = save_path.relative_to(cfg.epub_dir.resolve()).as_posix()
+    _book_jobs.enqueue(book_id_for(rel, save_path.stat().st_size))
+    return None
+
+
+# The folder new books are dropped into (inbox.py): polled while the server runs. EPUBs are
+# filed by the watcher itself; audiobooks go through _intake_jobs, behind uploads.
+_inbox_watcher = inbox_mod.Watcher(cfg, _intake_jobs, _inbox_add_epub)
 _admin_run: dict = {
     "running": False, "stage": None, "label": None,
     "started_at": None, "finished_at": None, "ok": None, "error": None,
@@ -2862,6 +2894,13 @@ def settings_put(payload: schemas.SettingsUpdate) -> JSONResponse:
                 errors[name] = problem
             else:
                 overlay[name] = settings_mod.to_json(key, typed)
+    if not errors and {"inbox.dir", "epub_dir", "audiobook_dirs"} & payload.values.keys():
+        # The inbox must stay apart from the library, whichever of them is changing.
+        tried = settings_mod.load(cfg.config_path, overlay=overlay)
+        if tried.inbox_dir is not None:
+            clash = inbox_mod.overlap(tried.inbox_dir, [tried.epub_dir, *tried.audiobook_dirs])
+            if clash:
+                errors["inbox.dir"] = clash
     if errors:
         first = next(iter(errors.items()))
         return JSONResponse({"detail": f"{first[0]}: {first[1]}", "errors": errors}, status_code=400)
@@ -2885,6 +2924,8 @@ def settings_put(payload: schemas.SettingsUpdate) -> JSONResponse:
 
     if "audible.marketplace" in applied:
         threading.Thread(target=_refresh_audible_links, daemon=True).start()
+    if "inbox.dir" in applied:
+        _inbox_watcher.wake()
     started = None
     if "epub_dir" in applied:
         started = "scan" if _start_stage("scan") else None
@@ -2899,6 +2940,13 @@ def _refresh_audible_links() -> None:
     address of each book's page on its site."""
     with _index_lock:
         audiobook_details_mod.rebuild(cfg)
+
+
+@app.get("/api/inbox")
+def inbox_status() -> JSONResponse:
+    """What the inbox is doing, for Settings: whether it is on, what is waiting, what was
+    filed or refused lately, and how many items sit in its _failed folder."""
+    return JSONResponse(_inbox_watcher.status(), headers={"Cache-Control": "no-cache"})
 
 
 @app.post("/api/settings/check-path")

@@ -59,6 +59,44 @@ for you:
 If you set an admin password, adding audiobooks needs it. An upload you abandon is cleared after a week.
 Behind a reverse proxy, see [the notes on upload limits](networking.md#4-a-reverse-proxy-a-name-without-the-port-optionally-https).
 
+### The inbox folder
+
+If you'd rather drop files into a folder than open the web app (a Libation export, a download
+folder, a share your other computer can write to), set an **Inbox folder** in Settings
+(`[inbox] dir` in the config file; unset means off). Hondana checks it every 30 seconds and files
+what it finds the way **Add Book** would, for audiobooks and EPUBs alike:
+
+| Drop this | It is |
+|---|---|
+| a `.epub` | filed into the `Japanese/` or `English/` folder of `epub_dir`, analyzed and linked |
+| an `.m4b`, `.m4a`, `.mp3`, `.flac`, `.opus` or `.ogg` file | one audiobook, filed under `audiobook_dirs[0]` as above |
+| a `.zip` of tracks | one audiobook, unpacked and filed as above |
+| a folder of tracks (and a `cover.jpg`) | one audiobook |
+| a folder tree such as Libation writes (`Author/Series/Title [ASIN]/Title [ASIN].m4b`) | every folder that holds audio is a book; several `.m4b` files in one folder are separate books |
+
+Things to know:
+
+- **Files are moved, not copied.** What is filed is gone from the inbox. The folder it came in is
+  tidied away too, but only when all that's left is cover images and notes (`.jpg`, `.json`,
+  `.cue`, `.txt`…); anything else, such as a PDF, keeps the folder where it is.
+- **Nothing is touched while it's arriving.** A file is filed once its size and modification time have
+  stayed the same for two checks in a row and it is at least a minute old, so a slow copy over the
+  network is left alone. A folder with a download or copy in progress (`.part`, `.crdownload`,
+  rsync's `.name.XXXXXX`) isn't filed until that's gone. Hidden files, symlinks and other kinds of
+  file are ignored.
+- **What can't be filed isn't lost.** A broken file, a zip that is refused, a book the library
+  already has, an EPUB over 100 MB: each goes to `_failed/` inside the inbox with a
+  `name.error.txt` saying why, and isn't tried again. Settings shows how many are waiting there. If
+  the library's drive is full or not mounted the item stays in the inbox and is tried again.
+- **A multi-disc book needs one folder or one zip.** Each folder that holds audio is a book, so
+  `CD1/` and `CD2/` side by side would be two.
+- **The inbox can't be inside a library folder**, or hold one. Settings refuses it.
+- **Only point it at a folder meant for this.** Every EPUB, zip and audio file in it is taken.
+
+Without the server running, `uv run cli.py inbox` files what is ready (and `cli.py all` does it
+first), then scans. Run it from a timer if you want that instead of a watching server; don't run
+it while a server has the same inbox. Docker: see [docker.md](docker.md#folders).
+
 ### Matching a file to an Audible book
 
 A file with no ASIN in its name or tags is a guess from its tags or file name. To say which Audible

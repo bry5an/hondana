@@ -40,6 +40,7 @@
  "GET /api/connect": "open",
  "GET /api/connect/qr.svg": "open",
  "GET /api/genres": "open",
+ "GET /api/inbox": "admin",
  "GET /api/known-words": "open",
  "GET /api/known-words/frequent": "open",
  "GET /api/known-words/seed/preview": "open",
