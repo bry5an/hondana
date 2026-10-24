@@ -7,6 +7,7 @@ import zipfile
 import pytest
 from fastapi.testclient import TestClient
 
+from conftest import toml_str
 from epublib import dicts
 
 
@@ -139,9 +140,10 @@ def test_a_dicts_dir_in_the_config_is_honoured(tmp_path):
 
     elsewhere = tmp_path / "my dicts"
     toml = tmp_path / "c.toml"
-    toml.write_text(f'epub_dir = "{tmp_path}"\ndata_dir = "{tmp_path / "d"}"\ndicts_dir = "{elsewhere}"\n')
+    toml.write_text(f'epub_dir = {toml_str(tmp_path)}\ndata_dir = {toml_str(tmp_path / "d")}\n'
+                    f'dicts_dir = {toml_str(elsewhere)}\n', encoding="utf-8")
     assert config.load(toml).dicts_dir == elsewhere
-    toml.write_text(f'epub_dir = "{tmp_path}"\ndata_dir = "{tmp_path / "d"}"\n')
+    toml.write_text(f'epub_dir = {toml_str(tmp_path)}\ndata_dir = {toml_str(tmp_path / "d")}\n', encoding="utf-8")
     assert config.load(toml).dicts_dir == tmp_path / "d" / "dicts"
 
 
