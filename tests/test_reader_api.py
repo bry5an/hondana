@@ -206,7 +206,7 @@ def test_replaying_a_batch_is_a_no_op(server, client):
     second = _post(client, batch)
     assert {p: p.read_bytes() for p in files} == files
     assert second["etag"] == first["etag"] == vocab_before[1]
-    assert len(cfg.reader_lookups.read_text().splitlines()) == 1
+    assert len(cfg.reader_lookups.read_text(encoding="utf-8").splitlines()) == 1
     assert _vocab(client) == vocab_before
 
 
@@ -318,7 +318,7 @@ def test_lookups_are_appended_once_per_id(server, client):
           "book_id": A, "sentence": "犬が走る。"}
     _post(client, [lk, {**lk, "id": "l2", "orth": "猫"}, lk])
     _post(client, [lk])
-    rows = [json.loads(line) for line in server.cfg.reader_lookups.read_text().splitlines()]
+    rows = [json.loads(line) for line in server.cfg.reader_lookups.read_text(encoding="utf-8").splitlines()]
     assert [r["id"] for r in rows] == ["l1", "l2"]
     assert rows[0] == {"id": "l1", "ts": "2026-10-16T09:00:00+00:00", "orth": "犬", "lemma": "犬",
                        "book_id": A, "sentence": "犬が走る。"}

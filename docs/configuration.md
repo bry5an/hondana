@@ -83,7 +83,7 @@ drive that isn't mounted shows up as missing rather than as an empty library.
 | `[pairing] min_score` | `0.5` | Not used: pairing's thresholds are fixed in `epublib/pairing.py`. Kept so old configs still load. |
 | `[xref] min_score` | `0.62` | Minimum title/series similarity to link an audiobook to an EPUB. |
 | `google_books_api_key` | unset | Google Books API key for genres and descriptions by ISBN (also `GOOGLE_BOOKS_API_KEY`, see below). |
-| `[alignment] subplz_cmd` | `""` | The command that aligns one audio file with a book's text, for audiobook ↔ text sync. See [audio-sync.md](audio-sync.md). Empty on a server without a GPU. The server runs this command, so it can only be set in the config file or the environment, never from the web app. |
+| `[alignment] subplz_cmd` | `""` | The command that aligns one audio file with a book's text, for audiobook ↔ text sync. See [audio-sync.md](audio-sync.md). Empty on a server without a GPU. The server runs this command, so it can only be set in the config file or the environment, never from the web app. Written as a string it is split like a shell command line; written as a TOML array of arguments it is used as is, which is what a Windows path with backslashes needs. |
 | `[data_mirror] publish` | `false` | Whether `cli.py push` commits your hand-made data to a private git repo. Turn it on only on the machine that holds the real library. |
 | `trusted_origins` | `[]` | Extra browser origins (`https://books.example`) allowed to make changes, for a proxy that doesn't forward `Host`. Config file or environment only. |
 | `[data_mirror] path` | unset | The local clone of that repo; required when `publish` is true. See [running-a-server.md](running-a-server.md#backups). |

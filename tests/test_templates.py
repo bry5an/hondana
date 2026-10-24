@@ -1,5 +1,6 @@
 """Page shell partials: head/shell/header includes, attribute handling,
 nested includes, and that every page actually uses them."""
+import os
 import re
 from pathlib import Path
 
@@ -89,7 +90,9 @@ def test_editing_an_asset_bumps_the_page_version(server, tmp_path, monkeypatch):
     monkeypatch.setattr(server, "TEMPLATES_DIR", page)
     monkeypatch.setattr(server, "STATIC_DIR", static)
     before = server._render("t.html")
-    (static / "x.js").write_text("22")   # new size too, so a coarse mtime can't hide it
+    (static / "x.js").write_text("22")
+    stamp = (static / "x.js").stat().st_mtime + 5  # Windows clocks tick in ~15 ms steps
+    os.utime(static / "x.js", (stamp, stamp))
     assert server._render("t.html") != before
 
 

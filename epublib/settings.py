@@ -46,7 +46,7 @@ class Key:
     `default` is a value or a function of the load context."""
     name: str
     field: str
-    kind: str  # path | paths | optpath | str | choice | list | secret | int | optint | float | bool
+    kind: str  # path | paths | optpath | str | command | choice | list | secret | int | optint | float | bool
     default: object
     label: str
     group: str  # library | audiobooks | network | metadata | advanced | system
@@ -108,9 +108,10 @@ KEYS: tuple[Key, ...] = (
         gui=False),
     Key("xref.min_score", "xref_min_score", "float", 0.62, "Audiobook link threshold", "advanced",
         "Minimum title/series similarity to link an audiobook to an EPUB."),
-    Key("alignment.subplz_cmd", "subplz_cmd", "str", "", "SubPlz command", "advanced",
+    Key("alignment.subplz_cmd", "subplz_cmd", "command", "", "SubPlz command", "advanced",
         "The command that aligns one audio file with a book's text. The server runs it, so it "
-        "can only be set in the config file.", file_only=True),
+        "can only be set in the config file. A list of arguments avoids shell quoting (use it "
+        "for Windows paths).", file_only=True),
     Key("discovery.enabled", "discovery_enabled", "bool", True, "Announce on the network",
         "network", "Advertise over Bonjour so Hondana for iPhone finds this server.", restart=True),
     Key("discovery.advertise_port", "discovery_advertise_port", "optint", None,
@@ -228,6 +229,14 @@ def coerce(key: Key, value, base: Path):
                 items = list(value)
             return [_path(v, base) for v in items]
         if key.kind in ("str", "secret"):
+            return str(value).strip()
+        if key.kind == "command":
+            # A string is split like a shell would; an array (TOML, or JSON in the
+            # environment) is the argv as written, for paths that shlex would mangle.
+            if isinstance(value, str) and value.strip().startswith("["):
+                value = json.loads(value)
+            if isinstance(value, (list, tuple)):
+                return [str(v) for v in value]
             return str(value).strip()
         if key.kind == "choice":
             text = str(value).strip().lower()

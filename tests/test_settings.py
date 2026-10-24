@@ -19,7 +19,7 @@ def _legacy_load(cfg_path: Path, root: Path) -> Config:
         p = Path(value).expanduser()
         return p if p.is_absolute() else (base / p).resolve()
 
-    raw = tomllib.loads(cfg_path.read_text())
+    raw = tomllib.loads(cfg_path.read_text(encoding="utf-8"))
     nat, pair, xref = raw.get("natively", {}), raw.get("pairing", {}), raw.get("xref", {})
     mirror = raw.get("data_mirror", {})
     return Config(
@@ -178,17 +178,18 @@ def test_environment_beats_the_overlay_which_beats_the_file(monkeypatch, tmp_pat
 
 
 def test_environment_values_are_parsed_by_kind(monkeypatch, tmp_path):
-    monkeypatch.setenv("HONDANA_AUDIOBOOK_DIRS", os.pathsep.join(["/a", "/b"]))
+    a, b, c = ((tmp_path / n).resolve() for n in "abc")
+    monkeypatch.setenv("HONDANA_AUDIOBOOK_DIRS", os.pathsep.join([str(a), str(b)]))
     monkeypatch.setenv("HONDANA_DISCOVERY_ENABLED", "no")
     monkeypatch.setenv("HONDANA_DATA_DIR", str(tmp_path / "d"))
     monkeypatch.setenv("GOOGLE_BOOKS_API_KEY", " k ")
     cfg = settings.load()
-    assert cfg.audiobook_dirs == [Path("/a"), Path("/b")]
+    assert cfg.audiobook_dirs == [a, b]
     assert cfg.discovery_enabled is False
     assert cfg.data_dir == tmp_path / "d" and cfg.dicts_dir == tmp_path / "d" / "dicts"
     assert cfg.google_books_api_key == "k" and cfg.sources["google_books_api_key"] == "env"
-    monkeypatch.setenv("HONDANA_AUDIOBOOK_DIRS", '["/c"]')
-    assert settings.load().audiobook_dirs == [Path("/c")]
+    monkeypatch.setenv("HONDANA_AUDIOBOOK_DIRS", json.dumps([str(c)]))
+    assert settings.load().audiobook_dirs == [c]
     monkeypatch.setenv("HONDANA_DISCOVERY_ENABLED", "maybe")
     with pytest.raises(SystemExit, match="discovery.enabled"):
         settings.load()
