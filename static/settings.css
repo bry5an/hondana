@@ -20,7 +20,7 @@
   color: var(--muted);
 }
 .set-fld input[type="text"], .set-fld input[type="number"], .set-fld input[type="password"],
-.set-fld textarea {
+.set-fld textarea, .set-fld select {
   border: 2px solid var(--border);
   border-radius: 12px;
   padding: 10px 13px;
@@ -32,9 +32,9 @@
   box-sizing: border-box;
 }
 .set-fld textarea { resize: vertical; line-height: 1.5; }
-.set-fld input:focus, .set-fld textarea:focus { border-color: var(--accent); outline: none; }
-.set-fld input:focus-visible, .set-fld textarea:focus-visible { outline: 2px solid var(--accent-ink); outline-offset: 1px; }
-.set-fld input:disabled, .set-fld textarea:disabled { opacity: 0.7; cursor: not-allowed; }
+.set-fld input:focus, .set-fld textarea:focus, .set-fld select:focus { border-color: var(--accent); outline: none; }
+.set-fld input:focus-visible, .set-fld textarea:focus-visible, .set-fld select:focus-visible { outline: 2px solid var(--accent-ink); outline-offset: 1px; }
+.set-fld input:disabled, .set-fld textarea:disabled, .set-fld select:disabled { opacity: 0.7; cursor: not-allowed; }
 .set-fld input::placeholder { color: var(--muted); }
 .set-check { display: flex; align-items: center; gap: 8px; font-weight: 700; font-size: 0.88rem; }
 .set-check input { accent-color: var(--accent); width: 18px; height: 18px; }
@@ -115,7 +115,7 @@ body.dark .set-src--restart { background: #4a3a24; color: #e0b878; }
 
 @media (max-width: 639px) {
   .set-fld input[type="text"], .set-fld input[type="number"], .set-fld input[type="password"],
-  .set-fld textarea { font-size: 1rem; }
+  .set-fld textarea, .set-fld select { font-size: 1rem; }
   .set-actions .submit-btn, .set-actions .btn { min-height: 44px; }
   .set-token-row { flex-wrap: wrap; }
 }

@@ -19,6 +19,12 @@ and records `old → new` in `audiobook_aliases.json`, which
 `reader.merge_audio_progress` applies to phone events that still carry the old
 id. Hand matches (`audiobook_assignments.json`) are keyed by fid and need nothing.
 
+A file moving from one catalog key to another (a hand match corrected, or
+removed) carries only what belongs to the *file*: the listening position, the
+alignment and the alias (`whole_book=False`). The rest describes the book the old
+key names — the Natively match, hand-typed details, the prune flag, an EPUB
+pinned to it — and stays with that row.
+
 The caller holds `server._index_lock` (or is a pipeline stage that does).
 """
 from __future__ import annotations
@@ -48,24 +54,26 @@ def _newer(a: dict, b: dict) -> dict:
         return b
 
 
-def rekey_audiobook(cfg: Config, old: str, new: str) -> list[str]:
-    """Move everything kept under `old` to `new`. Returns the stores touched."""
+def rekey_audiobook(cfg: Config, old: str, new: str, *, whole_book: bool = True) -> list[str]:
+    """Move everything kept under `old` to `new`. Returns the stores touched.
+    `whole_book=False` moves only what follows the file (see the module docs)."""
     if old == new:
         return []
     touched: list[str] = []
-    for attr in AB_INDEXES:
-        path = getattr(cfg, attr)
-        if _move_key(path, old, new):
-            touched.append(path.name)
+    if whole_book:
+        for attr in AB_INDEXES:
+            path = getattr(cfg, attr)
+            if _move_key(path, old, new):
+                touched.append(path.name)
 
-    hidden = load_json(cfg.audiobook_hidden, {})
-    ids = list(hidden.get("ab_ids") or [])
-    if old in ids:
-        ids = [i for i in ids if i != old]
-        if new not in ids:
-            ids.append(new)
-        save_json(cfg.audiobook_hidden, {**hidden, "ab_ids": ids})
-        touched.append(cfg.audiobook_hidden.name)
+        hidden = load_json(cfg.audiobook_hidden, {})
+        ids = list(hidden.get("ab_ids") or [])
+        if old in ids:
+            ids = [i for i in ids if i != old]
+            if new not in ids:
+                ids.append(new)
+            save_json(cfg.audiobook_hidden, {**hidden, "ab_ids": ids})
+            touched.append(cfg.audiobook_hidden.name)
 
     for d in sorted(p for p in cfg.users_dir.glob("*") if p.is_dir()):
         path = d / "audio_progress.json"
@@ -77,7 +85,7 @@ def rekey_audiobook(cfg: Config, old: str, new: str) -> list[str]:
             touched.append(f"users/{d.name}/{path.name}")
 
     links = load_json(cfg.audiobook_link_overrides, {})
-    if old in links.values():
+    if whole_book and old in links.values():
         save_json(cfg.audiobook_link_overrides,
                   {bid: (new if key == old else key) for bid, key in links.items()})
         touched.append(cfg.audiobook_link_overrides.name)
@@ -89,13 +97,14 @@ def rekey_audiobook(cfg: Config, old: str, new: str) -> list[str]:
             touched.append(f"alignments/{path.name}")
 
     # A hand-set cover's image goes with its flag (moved above, in the overrides).
-    covers = cfg.audiobook_custom_covers_dir
-    for src in covers.glob(f"{old}.*"):
-        dst = covers / f"{new}{src.suffix}"
-        if not dst.exists():
-            src.rename(dst)
-            touched.append(f"covers/audiobooks/custom/{dst.name}")
-    (covers / "thumbs" / f"{old}.webp").unlink(missing_ok=True)
+    if whole_book:
+        covers = cfg.audiobook_custom_covers_dir
+        for src in covers.glob(f"{old}.*"):
+            dst = covers / f"{new}{src.suffix}"
+            if not dst.exists():
+                src.rename(dst)
+                touched.append(f"covers/audiobooks/custom/{dst.name}")
+        (covers / "thumbs" / f"{old}.webp").unlink(missing_ok=True)
 
     aliases = load_json(cfg.audiobook_aliases, {})
     aliases = {k: (new if v == old else v) for k, v in aliases.items() if k != new}

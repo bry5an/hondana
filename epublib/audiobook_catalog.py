@@ -7,7 +7,7 @@ as just the pulled rows). A title bought
 or ripped after that carries its ASIN in the file name (`… [B07QMQHLVH].m4b`) but
 had no metadata, so it showed with a filename-derived title and no cover, series
 order or genre, and xref could never link an EPUB to it. `fetch_missing()` looks
-those ASINs up in Audible's public catalog API (no login) and keeps the result in
+those ASINs up in Audible's public catalog API (no login, `audible.py`) and keeps the result in
 `data/audiobook_catalog_extra.json`, a generated per-machine file like every other
 index. Everything that used to read `cfg.audiobook_data` reads `load()`/`cached()`
 instead, which lay the extras over the base per field.
@@ -35,16 +35,11 @@ import unicodedata
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-import requests
-
-from . import audiobook_scanner
+from . import audible, audiobook_scanner
 from .audiobook_scanner import AUDIBLE_KEY_RE
 from .config import Config
 from .index_store import load_json, save_json
 
-API_URL = "https://api.audible.co.jp/1.0/catalog/products/{asin}"
-RESPONSE_GROUPS = ("product_desc,product_attrs,series,contributors,media,rating,"
-                   "category_ladders,product_extended_attrs")
 RETRY_DAYS = 14        # an ASIN Audible didn't know is asked about again after this
 GIVE_UP_AFTER = 3      # consecutive request errors (not 404s) before the run stops
 SAVE_EVERY = 25
@@ -247,17 +242,6 @@ def entry_from_product(product: dict) -> dict:
 
 # ── fetching ─────────────────────────────────────────────────────────────────
 
-def fetch_product(asin: str) -> dict | None:
-    """The Audible product for `asin`, or None if it doesn't exist (404).
-    Any other failure raises, so a network outage isn't recorded as a miss."""
-    r = requests.get(API_URL.format(asin=asin), params={"response_groups": RESPONSE_GROUPS},
-                     timeout=15)
-    if r.status_code == 404:
-        return None
-    r.raise_for_status()
-    return r.json().get("product")
-
-
 def _wanted(cfg: Config, base: dict, extra: dict, now: datetime) -> list[str]:
     """ASINs on disk that the catalog doesn't know: not in the base file, not
     pulled already, and not an unavailable one asked about recently."""
@@ -295,7 +279,7 @@ def fetch_missing(cfg: Config, *, delay: float = 0.3) -> dict:
     added = errors = 0
     for i, asin in enumerate(todo, 1):
         try:
-            product = fetch_product(asin)
+            product = audible.fetch_product(asin, cfg.audible_marketplace)
         except Exception as exc:  # noqa: BLE001 — network/HTTP, report and keep going
             errors += 1
             print(f"  [{i}/{len(todo)}] ! {asin}: {exc}")

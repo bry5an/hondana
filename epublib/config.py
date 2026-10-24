@@ -49,6 +49,9 @@ class Config:
     # Read from the GOOGLE_BOOKS_API_KEY environment variable (.env).
     google_books_api_key: str = ""
 
+    # Which Audible store ASINs belong to and searches go to (audible.MARKETPLACES).
+    audible_marketplace: str = "jp"
+
     # Where your Yomitan dictionary zips live, hosted to the iOS reader
     # (dicts.py). None = data_dir/dicts, filled in by __post_init__.
     dicts_dir: Path | None = None

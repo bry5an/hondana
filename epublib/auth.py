@@ -41,7 +41,8 @@ MIN_PASSWORD = 8
 
 # Pages and reads that are admin-only once a password is set (a prefix of the
 # route's path template).
-ADMIN_READ_PREFIXES = ("/admin", "/settings", "/api/admin/", "/api/settings", "/api/auth/tokens")
+ADMIN_READ_PREFIXES = ("/admin", "/settings", "/api/admin/", "/api/settings", "/api/auth/tokens",
+                       "/api/audible/")
 # Writes anyone may make even with a password set: the reader's own state, the
 # phone's sync, signing in and out, and choosing a profile.
 OPEN_WRITES = {

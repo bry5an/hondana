@@ -39,16 +39,14 @@ import shutil
 from datetime import datetime, timezone
 from pathlib import Path
 
-from . import audio_tags, romaji
+from . import audible, audio_tags, romaji
 from .config import Config
 from .index_store import load_json, save_json
 
 SCHEMA_VERSION = 2
-AUDIBLE_PD = "https://www.audible.co.jp/pd/"
 
 ISBN_RE = re.compile(r"\[(B0[A-Z0-9]{8})\]")
-# Audible ASINs: B0… for most titles, an ISBN-10 for some older ones.
-AUDIBLE_KEY_RE = re.compile(r"B0[A-Z0-9]{8}|\d{9}[\dX]")
+AUDIBLE_KEY_RE = audible.ASIN_RE
 # Catalog keys embedded in filenames: Audible ISBNs plus the non-Audible
 # source tags data.json also uses as keys ("kikubon 389", "audiobook.jp 1234").
 CATALOG_KEY_RE = re.compile(
@@ -264,11 +262,18 @@ def _fid_of(e: dict) -> str:
     return ab_id_for(e["path"], e["filesize"])
 
 
+def _key_source(entry: dict | None) -> str | None:
+    """How a file got its catalog key (an entry from before `key_source` existed
+    can only have got it from its name)."""
+    if not entry or not entry.get("catalog_key"):
+        return None
+    return entry.get("key_source") or "name"
+
+
 def _named(e: dict) -> bool:
-    """Is the entry's key in its own name? (Entries from before `key_source`
-    could only have got one that way.) Such an id is found again from the name
-    alone, wherever the file goes."""
-    return bool(e.get("catalog_key")) and e.get("key_source", "name") == "name"
+    """Is the entry's key in its own name? Such an id is found again from the
+    name alone, wherever the file goes."""
+    return _key_source(e) == "name"
 
 
 def _carry_keys(e: dict) -> list[tuple]:
@@ -515,6 +520,8 @@ def build_index(cfg: Config) -> dict:
             "ab_id": key,
             "catalog_key": (local or {}).get("catalog_key") if source != "catalog" else key,
             "source": source,
+            # How the file got its key: name | assigned (a hand match) | tag | None.
+            "key_source": _key_source(local),
             "title": ab.get("title"),
             "author": ab.get("author"),
             "author_reading": romaji.sort_reading(ab.get("author")),
@@ -533,7 +540,8 @@ def build_index(cfg: Config) -> dict:
             "release_date": ab.get("release_date"),
             "genre": ab.get("genre"),
             # Non-Audible sources (kikubon/audiobook.jp keys) have no pd page.
-            "audible_url": f"{AUDIBLE_PD}{key}" if AUDIBLE_KEY_RE.fullmatch(key) else None,
+            "audible_url": (audible.pd_url(key, cfg.audible_marketplace)
+                            if AUDIBLE_KEY_RE.fullmatch(key) else None),
             "natively_level": nat.get("natively_level"),
             "natively_url": nat.get("natively_url"),
             "language_learning_rating": nat.get("language_learning_rating"),

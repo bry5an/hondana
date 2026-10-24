@@ -20,14 +20,13 @@ import difflib
 import re
 import unicodedata
 
-from . import audiobook_catalog
+from . import audible, audiobook_catalog
 from .audiobook_scanner import AUDIBLE_KEY_RE
 from .build import _title_series
 from .config import Config
 from .index_store import load_json, save_json
 from .textnorm import match_key, strip_volume_prefix
 
-AUDIBLE_PD = "https://www.audible.co.jp/pd/"
 
 # Titles this similar are the same book even if the catalog credits a
 # co-author (嫌われる勇気 lists 岸見一郎; the EPUB 古賀史健).
@@ -173,14 +172,14 @@ class _Matcher:
 
 
 def _entry(cfg_files: dict, audiobooks: dict, isbn: str, score: float,
-           override: bool = False) -> dict:
+           override: bool = False, marketplace: str | None = None) -> dict:
     local = cfg_files.get(isbn)
     entry = {
         "audible_isbn": isbn,
         "match_score": round(score, 3),
         "audiobook_local": local is not None,
         "audiobook_path": local["path"] if local else None,
-        "audible_url": (f"{AUDIBLE_PD}{isbn}"
+        "audible_url": (audible.pd_url(isbn, marketplace)
                         if AUDIBLE_KEY_RE.fullmatch(isbn) else None),
     }
     if override:
@@ -199,7 +198,7 @@ def _local_by_key(cfg: Config) -> dict:
 
 
 def _link_for(book: dict, matcher: _Matcher | None, audiobooks: dict,
-              overrides: dict, local_by_key: dict) -> dict | None:
+              overrides: dict, local_by_key: dict, marketplace: str | None = None) -> dict | None:
     """The audiobook link for one EPUB, or None. A hand override wins over the
     fuzzy match; null means "no audiobook" and suppresses even a good match. An
     override naming an ISBN no longer in the catalog is ignored."""
@@ -209,11 +208,12 @@ def _link_for(book: dict, matcher: _Matcher | None, audiobooks: dict,
         if isbn is None:
             return None
         if isbn in audiobooks:
-            return _entry(local_by_key, audiobooks, isbn, 1.0, override=True)
+            return _entry(local_by_key, audiobooks, isbn, 1.0, override=True,
+                          marketplace=marketplace)
     if matcher is None or book.get("language") != "ja":
         return None  # audiobooks are Japanese
     hit = matcher.best(book)
-    return _entry(local_by_key, audiobooks, hit[0], hit[1]) if hit else None
+    return _entry(local_by_key, audiobooks, hit[0], hit[1], marketplace=marketplace) if hit else None
 
 
 def xref(cfg: Config) -> dict:
@@ -230,7 +230,7 @@ def xref(cfg: Config) -> dict:
 
     links: dict = {}
     for book in library.values():
-        link = _link_for(book, matcher, audiobooks, overrides, local_by_key)
+        link = _link_for(book, matcher, audiobooks, overrides, local_by_key, cfg.audible_marketplace)
         if link:
             links[book["book_id"]] = link
 
@@ -250,7 +250,7 @@ def xref_one(cfg: Config, book_id: str) -> dict | None:
         return None
     overrides: dict = load_json(cfg.audiobook_link_overrides, {})
     matcher = _Matcher(audiobooks, cfg.xref_min_score)
-    link = _link_for(book, matcher, audiobooks, overrides, _local_by_key(cfg))
+    link = _link_for(book, matcher, audiobooks, overrides, _local_by_key(cfg), cfg.audible_marketplace)
 
     links: dict = load_json(cfg.audiobook_links, {})
     if link:

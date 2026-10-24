@@ -18,19 +18,51 @@ for iPhone, linked to its EPUB, and synced with the text ([audio-sync.md](audio-
 2. Tell Hondana which book it is. Any one of these works, and the first one found wins:
    1. the Audible **ASIN** in the file or folder name in square brackets, e.g.
       `[08] リアデイルの大地にて8 [B0CCN9M612].m4b`;
-   2. a match you made by hand (kept in `data/audiobook_assignments.json`);
+   2. a match you made by hand with **Find on Audible** ([below](#matching-a-file-to-an-audible-book));
    3. an ASIN in the file's tags (Libation and Audible's own files carry one).
 
    A file with none of them still shows up, with the title, author, narrator, series, runtime and
    cover from its tags, or else a guess from its file and folder names.
 3. Run **Run full pipeline** on Admin (or `uv run cli.py all`).
 
-`catalog` looks up every ASIN the catalog doesn't know in Audible Japan's public catalog API
-(no login) and stores the row in `data/audiobook_catalog_extra.json`. The row carries the title,
+`catalog` looks up every ASIN the catalog doesn't know in Audible's public catalog API (no login;
+the store is `[audible] marketplace`, Japan by default) and stores the row in `data/audiobook_catalog_extra.json`. The row carries the title,
 author, narrator, series and volume, runtime, cover, description and a genre. An ASIN Audible has
 no book for is asked about again after 14 days.
 
 iOS can't play some Audible downloads as they are. See [Files iOS won't play](#files-ios-wont-play).
+
+### Matching a file to an Audible book
+
+A file with no ASIN in its name or tags is a guess from its tags or file name. To say which Audible
+book it is, open its series page and choose **Find on Audible** (beside "Guessed from the file
+name"), or turn on **Edit** and use the row's ⋯ menu.
+
+1. The search is filled in from the file's title and author. Edit it and press **Search**, or paste
+   an ASIN or an Audible link (`…/pd/Title/B0CCN9M612`).
+2. Pick the book. Books another file here already is, are greyed out.
+3. Optionally tick **Also add [ASIN] to the file name**. The file (or the book's folder) is renamed
+   to `name [ASIN]`, so the match doesn't depend on Hondana's data folder and `consolidate` and other
+   tools read it too. It is left alone if the new name is taken, or when a folder holds two albums.
+4. **Match.**
+
+The file's id becomes the ASIN, and everything kept under the old id goes with it: your listening
+position, the text sync, hand-typed details and the cover. The Audible book's details are stored in
+`data/audiobook_catalog_extra.json` unless the catalog already has them, and the match is kept in
+`data/audiobook_assignments.json`. An EPUB that matches the book now links to it, and it can be
+synced with the text.
+
+- **Change it** by matching again. Only what belongs to the *file* moves to the new book (your
+  position and the text sync); details, Natively level and links belong to the book they were made for.
+- **Remove it** from the same dialog ("or remove the match"): the file goes back to what its tags and
+  name say.
+- A file whose name already has `[ASIN]` can't be matched, because the name always wins. Rename the file.
+- The search goes to the store set in **Settings → Metadata → Audible store**. An ASIN belongs to
+  one store, so pick the one your audiobooks come from. **Find on Audible** needs internet access and
+  says so when Audible doesn't answer.
+- A search that finds nothing is repeated without the author, then as plain keywords, which
+  forgives a trailing "(series 1)" that Audible's title search does not.
+- Not on Audible at all? **Enter the details by hand** opens the details form instead.
 
 ### What a file's tags give
 

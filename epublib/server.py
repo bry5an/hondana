@@ -38,8 +38,10 @@ from . import anki_notetype as anki_notetype_mod
 from . import auth as auth_mod
 from . import align as align_mod
 from . import annotate as annotate_mod
+from . import audible as audible_mod
 from . import audiobook_catalog as audiobook_catalog_mod
 from . import audiobook_details as audiobook_details_mod
+from . import audiobook_match as audiobook_match_mod
 from . import audiobook_scanner as audiobook_scanner_mod
 from . import audiobook_xref as xref_mod
 from . import align_jobs as align_jobs_mod
@@ -1915,6 +1917,77 @@ async def reset_audiobook_cover(ab_id: str) -> JSONResponse:
     return JSONResponse(await asyncio.to_thread(_run))
 
 
+# ── Audible search and Match ─────────────────────────────────────────────────
+# A local file the scanner can't identify is matched to an Audible book by hand
+# (audiobook_match.py): search Audible, pick the book, and the file becomes it —
+# progress, alignments and edits follow. Audible is asked outside _index_lock.
+
+def _audible_failure(exc: Exception) -> HTTPException:
+    """ValueError is a bad request; an AudibleError is Audible's (or the network's)."""
+    return HTTPException(status_code=400 if isinstance(exc, ValueError) else 502, detail=str(exc))
+
+
+def _match_failure(exc: audiobook_match_mod.MatchError) -> JSONResponse:
+    return JSONResponse({"reason": exc.reason, "detail": str(exc)}, status_code=exc.status)
+
+
+@app.get("/api/audible/search", response_model=schemas.AudibleSearchResponse)
+async def audible_search(title: str = "", author: str = "", keywords: str = "") -> dict:
+    """Audible books matching a title, author and/or keywords, in the store set by
+    `audible.marketplace`. 400 for an empty search, 502 when Audible can't answer."""
+    try:
+        results = await asyncio.to_thread(audiobook_match_mod.candidates, cfg, title, author, keywords)
+    except (ValueError, audible_mod.AudibleError) as exc:
+        raise _audible_failure(exc)
+    mp = audible_mod.market(cfg.audible_marketplace)
+    return {"marketplace": {"code": cfg.audible_marketplace, "label": mp.label}, "results": results}
+
+
+@app.get("/api/audiobooks/{ab_id}/match", response_model=schemas.AudiobookMatchState)
+def get_audiobook_match(ab_id: str) -> dict:
+    st = audiobook_match_mod.state(cfg, ab_id)
+    if st is None:
+        raise HTTPException(status_code=404, detail="Unknown audiobook")
+    return st
+
+
+@app.post("/api/audiobooks/{ab_id}/match", response_model=schemas.AudiobookMatchResponse)
+async def set_audiobook_match(ab_id: str, payload: schemas.AudiobookMatchRequest):
+    """Make this local file the Audible book `asin` (a pasted link works too). 409
+    `{reason}`: `key_in_name`, `same`, `taken`, `not_a_book`, `not_local`; 404
+    `not_found` when Audible has no such ASIN; 502 when Audible can't answer."""
+    asin = audible_mod.parse_asin(payload.asin)
+    if not asin:
+        raise HTTPException(status_code=400, detail="That isn't an Audible ASIN or link.")
+
+    def _run() -> dict:
+        row = audiobook_match_mod.prepare(cfg, ab_id, asin)  # the network call, no lock
+        with _index_lock:
+            result = audiobook_match_mod.match(cfg, ab_id, asin, row, rename=payload.rename)
+            return {"status": "ok", **result, **_require_audiobook(result["ab_id"])}
+
+    try:
+        return JSONResponse(await asyncio.to_thread(_run))
+    except audiobook_match_mod.MatchError as exc:
+        return _match_failure(exc)
+    except (ValueError, audible_mod.AudibleError) as exc:
+        raise _audible_failure(exc)
+
+
+@app.delete("/api/audiobooks/{ab_id}/match", response_model=schemas.AudiobookMatchResponse)
+async def reset_audiobook_match(ab_id: str):
+    """Take back a hand match. 409 `not_matched` when the file wasn't matched by hand."""
+    def _run() -> dict:
+        with _index_lock:
+            result = audiobook_match_mod.unmatch(cfg, ab_id)
+            return {"status": "ok", **result, **_require_audiobook(result["ab_id"])}
+
+    try:
+        return JSONResponse(await asyncio.to_thread(_run))
+    except audiobook_match_mod.MatchError as exc:
+        return _match_failure(exc)
+
+
 # ── EPUB ↔ audiobook link correction ─────────────────────────────────────────
 # xref picks the audiobook for each EPUB by fuzzy title match; this is the way
 # to fix a wrong one (or pin / remove it) without renaming files. Stored in
@@ -2605,6 +2678,7 @@ def _settings_doc() -> dict:
         fields.append({
             "key": key.name, "label": key.label, "group": key.group, "kind": key.kind,
             "help": key.help, "value": "" if secret else settings_mod.to_json(key, value),
+            "choices": [list(c) for c in key.choices] if key.choices else None,
             "is_set": bool(value) if secret else None,
             "source": fresh.sources.get(key.field, "default"), "env": locked or key.env,
             "env_locked": bool(locked), "file_only": key.file_only,
@@ -2673,6 +2747,8 @@ def settings_put(payload: schemas.SettingsUpdate) -> JSONResponse:
     finally:
         _index_lock.release()
 
+    if "audible.marketplace" in applied:
+        threading.Thread(target=_refresh_audible_links, daemon=True).start()
     started = None
     if "epub_dir" in applied:
         started = "scan" if _start_stage("scan") else None
@@ -2680,6 +2756,13 @@ def settings_put(payload: schemas.SettingsUpdate) -> JSONResponse:
         started = "audio-scan" if _start_stage("audio-scan") else None
     doc = _settings_doc()
     return JSONResponse({**doc, "applied": applied, "started": started})
+
+
+def _refresh_audible_links() -> None:
+    """The Audible store changed: the audiobook index and the links carry the
+    address of each book's page on its site."""
+    with _index_lock:
+        audiobook_details_mod.rebuild(cfg)
 
 
 @app.post("/api/settings/check-path")

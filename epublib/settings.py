@@ -28,6 +28,7 @@ import tomllib
 from dataclasses import dataclass
 from pathlib import Path
 
+from . import audible
 from .config import ROOT, Config
 
 SCHEMA = 1
@@ -45,7 +46,7 @@ class Key:
     `default` is a value or a function of the load context."""
     name: str
     field: str
-    kind: str  # path | paths | optpath | str | list | secret | int | optint | float | bool
+    kind: str  # path | paths | optpath | str | choice | list | secret | int | optint | float | bool
     default: object
     label: str
     group: str  # library | audiobooks | network | metadata | advanced | system
@@ -54,6 +55,7 @@ class Key:
     file_only: bool = False  # never set from the GUI: it runs a command, or moves where data lives
     gui: bool = True         # listed on the Settings page at all
     env_aliases: tuple[str, ...] = ()
+    choices: tuple[tuple[str, str], ...] = ()  # (value, label) for a `choice`
 
     @property
     def env(self) -> str:
@@ -92,6 +94,11 @@ KEYS: tuple[Key, ...] = (
     Key("google_books_api_key", "google_books_api_key", "secret", "", "Google Books API key",
         "metadata", "Fills in genres and descriptions by ISBN. Free from a Google Cloud project "
         "with the Books API enabled.", env_aliases=("GOOGLE_BOOKS_API_KEY",)),
+    Key("audible.marketplace", "audible_marketplace", "choice", audible.DEFAULT_MARKETPLACE,
+        "Audible store", "metadata",
+        "The Audible store your audiobooks are bought from. It decides where book details are "
+        "looked up by ASIN and where Match searches, and which site the Audible links open.",
+        choices=tuple((code, m.label) for code, m in audible.MARKETPLACES.items())),
     Key("natively.delay", "natively_delay", "float", 0.4, "Natively request delay (s)", "advanced",
         "Seconds between learnnatively.com requests. Please keep it polite."),
     Key("natively.min_score", "natively_min_score", "float", 0.55, "Natively match threshold",
@@ -222,6 +229,12 @@ def coerce(key: Key, value, base: Path):
             return [_path(v, base) for v in items]
         if key.kind in ("str", "secret"):
             return str(value).strip()
+        if key.kind == "choice":
+            text = str(value).strip().lower()
+            if text not in dict(key.choices):
+                raise SettingError(f"{key.name} must be one of {', '.join(dict(key.choices))}, "
+                                   f"not {value!r}")
+            return text
         if key.kind == "list":
             if isinstance(value, str):
                 text = value.strip()

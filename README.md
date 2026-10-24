@@ -156,7 +156,8 @@ To keep it running all the time (systemd, a reverse proxy, updates), see
 
 - Everything stays on your machine. The only outside services it calls are:
   - learnnatively.com, for difficulty levels;
-  - Audible Japan's public catalog, for metadata about new audiobooks;
+  - Audible's public catalog (the store you choose in Settings, Japan by default), for metadata
+    about new audiobooks and to search when you match one by hand;
   - Google Books, only if you add a key.
 
   Nothing you read or mark leaves your network.

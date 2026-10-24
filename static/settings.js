@@ -43,6 +43,11 @@ function inputHtml(f) {
     return `<input type="password" id="${id}" data-key="${esc(f.key)}" autocomplete="off"
       placeholder="${esc(ph)}"${off} ${desc}>`;
   }
+  if (f.kind === "choice") {
+    const opts = (f.choices || []).map(([v, label]) =>
+      `<option value="${esc(v)}"${v === f.value ? " selected" : ""}>${esc(label)}</option>`).join("");
+    return `<select id="${id}" data-key="${esc(f.key)}"${off} ${desc}>${opts}</select>`;
+  }
   if (f.kind === "list") {
     return `<input type="text" id="${id}" data-key="${esc(f.key)}" value="${esc((f.value || []).join(", "))}"
       spellcheck="false"${off} ${desc}>`;

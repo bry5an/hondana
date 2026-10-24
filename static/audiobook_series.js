@@ -77,10 +77,29 @@ function confirmVolume(kind, title) {
 
 // Edit details: the pencil in Edit mode, or "Add details" on a row whose details
 // were only guessed from its file name (that one shows outside Edit mode too).
+function openDetails(abId) {
+  AudiobookDetails.open(abId, { onClose: (changed, st) => { if (changed.length) afterEdit(st); } });
+}
+
+// Find on Audible: "Find on Audible" on a guessed row, or the ⋯ menu's Match item. A
+// match gives the file the Audible book's id, details and cover, so the volume may land
+// in another series (afterEdit follows it).
+function openMatch(abId) {
+  AudiobookMatch.open(abId, {
+    onHand: () => openDetails(abId),
+    onClose: (res) => {
+      if (!res) return;
+      if (res.rename_error) toast(`Matched, but the file wasn't renamed: ${res.rename_error}`);
+      afterEdit(res);
+    },
+  });
+}
+
 page.addEventListener("click", (e) => {
-  const btn = e.target.closest("[data-edit-ab]");
-  if (!btn) return;
-  AudiobookDetails.open(btn.dataset.editAb, { onClose: (changed, st) => { if (changed.length) afterEdit(st); } });
+  const edit = e.target.closest("[data-edit-ab]");
+  if (edit) { openDetails(edit.dataset.editAb); return; }
+  const match = e.target.closest("[data-match-ab]");
+  if (match) openMatch(match.dataset.matchAb);
 });
 
 // An edit can move the volume to another series (or author): say where it went,
@@ -100,10 +119,16 @@ page.addEventListener("click", async (e) => {
   const menu = e.target.closest(".row-menu-btn[data-ab-id]");
   if (!menu) return;
   const { abId, title } = menu.dataset;
-  const items = [{
+  const items = [];
+  // A file whose name carries its [ASIN] is already identified; any other can be matched.
+  if (menu.dataset.local && menu.dataset.keySource !== "name") items.push({
+    label: menu.dataset.keySource === "assigned" ? "Change Audible match…" : "Find on Audible…",
+    run: () => openMatch(abId),
+  });
+  items.push({
     label: "Remove from library…",
     run: async () => { if (await confirmVolume("hide", title)) hideAudiobook(abId); },
-  }];
+  });
   // Only a downloaded volume has a file to delete.
   if (menu.dataset.local) items.push({
     label: "Delete file…", danger: true,
@@ -171,7 +196,8 @@ function volRow(v) {
   // pruning are usually the ones never downloaded — while "Delete file" only appears when
   // there is a downloaded file (data-local).
   const menuBtn = moreBtn(
-    `data-ab-id="${esc(v.ab_id)}" data-title="${title}"${v.local ? " data-local=\"1\"" : ""}`,
+    `data-ab-id="${esc(v.ab_id)}" data-title="${title}"${v.local ? " data-local=\"1\"" : ""}` +
+    `${v.key_source ? ` data-key-source="${esc(v.key_source)}"` : ""}`,
     `More actions for ${v.title || "(untitled)"}`);
 
   const name = v.title || "(untitled)";
@@ -180,6 +206,8 @@ function volRow(v) {
   // A guess from the file name is worth fixing now, not only in Edit mode.
   const guessed = v.source === "filename"
     ? `<span class="needs-details">Guessed from the file name</span>` +
+      `<button type="button" class="link-btn" data-match-ab="${esc(v.ab_id)}" ` +
+      `aria-label="${esc(`Find on Audible: ${name}`)}">Find on Audible</button>` +
       `<button type="button" class="link-btn" data-edit-ab="${esc(v.ab_id)}" ` +
       `aria-label="${esc(`Add details: ${name}`)}">Add details</button>`
     : "";

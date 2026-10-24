@@ -430,6 +430,50 @@ class AudiobookDetailsResponse(AudiobookDetailsState):
     status: str
 
 
+class AudiobookMatchRequest(BaseModel):
+    asin: str              # an ASIN, or a pasted Audible link
+    rename: bool = False   # also add " [ASIN]" to the file (or folder) name
+
+
+class AudiobookMatchState(BaseModel):
+    ab_id: str
+    local: bool
+    mode: str              # name | assigned (matched by hand) | tag | none
+    asin: str | None
+    matchable: bool
+    reason: str | None     # why it can't be matched
+    can_rename: bool
+    query: dict            # {"title", "author"}: what to search for first
+    marketplace: dict      # {"code", "label"}
+
+
+class AudiobookMatchResponse(AudiobookDetailsState):
+    status: str
+    old_ab_id: str
+    renamed: bool = False
+    rename_error: str | None = None
+
+
+class AudibleCandidate(BaseModel):
+    asin: str
+    title: str | None
+    author: str | None
+    narrators: str | None
+    series: str | None
+    order: str | None
+    runtime_min: int | None
+    release_date: str | None
+    cover: str | None
+    url: str
+    local: bool        # a file here is already this book
+    in_catalog: bool   # the library already has its details
+
+
+class AudibleSearchResponse(BaseModel):
+    marketplace: dict
+    results: list[AudibleCandidate]
+
+
 class AudiobookLinkState(BaseModel):
     # "auto" (fuzzy match, or none found), "manual" (pinned to an ISBN) or
     # "none" (hand-unlinked).
