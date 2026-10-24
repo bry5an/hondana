@@ -8,8 +8,7 @@ import time
 
 import pytest
 
-from epublib import cli
-from epublib import pipeline, schemas
+from epublib import cli, inbox, pipeline, schemas
 from epublib.index_store import load_json
 from test_book_details import _seed
 
@@ -18,6 +17,7 @@ def _record(monkeypatch, calls):
     """Replace every module function the stages call with a recorder."""
     def rec(name):
         return lambda *a, **k: calls.append((name, k.get("refresh")))
+    monkeypatch.setattr(inbox, "run_once", lambda *a, **k: calls.append(("inbox", None)) or inbox.Report())
     monkeypatch.setattr(pipeline.scanner_mod, "scan", rec("scan"))
     monkeypatch.setattr(pipeline.analyze_mod, "analyze", rec("analyze"))
     monkeypatch.setattr(pipeline.enrich_mod, "enrich", rec("enrich"))
@@ -33,7 +33,8 @@ def _record(monkeypatch, calls):
 # ── registry ─────────────────────────────────────────────────────────────────
 
 def test_stage_order_is_the_documented_chain():
-    assert pipeline.CHAIN == "scan → analyze → enrich → pair → audio-scan → catalog → xref → build → epub-catalog"
+    assert pipeline.CHAIN == ("inbox → scan → analyze → enrich → pair → audio-scan → catalog → xref → build"
+                              " → epub-catalog")
     assert list(pipeline.STAGE_BY_ID) == [s.id for s in pipeline.STAGES]
     assert pipeline.BOOK_CHAIN == ("analyze", "enrich", "pair", "link", "build", "epub-catalog")
     assert pipeline.CHAIN in pipeline.ALL.description
@@ -43,7 +44,7 @@ def test_run_all_runs_every_stage_in_order_and_refresh_reaches_only_enrich(monke
     calls = []
     _record(monkeypatch, calls)
     pipeline.run_all(None)
-    assert [c[0] for c in calls] == ["scan", "build", "analyze", "enrich", "pair",
+    assert [c[0] for c in calls] == ["inbox", "scan", "build", "analyze", "enrich", "pair",
                                      "audio-scan", "audio-index", "catalog", "xref", "build", "epub-catalog"]
     calls.clear()
     pipeline.run_all(None, refresh=True)

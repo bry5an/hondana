@@ -15,8 +15,12 @@ services:
       - ./data:/data                # indices, profiles, known words: back this up
       - /path/to/EPUBs:/books
       - /path/to/Audiobooks:/audiobooks
+      # Optional: a folder to drop new EPUBs and audiobooks into (see docs/audiobooks.md).
+      # Uncomment this and HONDANA_INBOX_DIR below. It must be writable by PUID:PGID.
+      # - /path/to/Inbox:/inbox
     environment:
       TZ: Etc/UTC
+      # HONDANA_INBOX_DIR: /inbox
       # The address your phone uses for this server (shown as a QR code on Profile).
       # Needed with the port mapping above, where the container can't see your LAN address.
       # HONDANA_PUBLIC_URL: "http://192.168.1.20:8000"

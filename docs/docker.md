@@ -37,6 +37,7 @@ docker run -d --name hondana -p 8000:8000 \
 | `/data` | Indices, covers, profiles, known words, saved settings | **Back this up.** The hand-made part can't be rebuilt ([configuration.md](configuration.md#files-under-data)) |
 | `/books` | Your EPUBs | Books added on **Add Book** are written here, so it must be writable |
 | `/audiobooks` | Your audiobooks | Read-only works, but then deleting an audiobook from the app fails |
+| `/inbox` | Optional: a folder to drop new books into | Must be writable. Set `HONDANA_INBOX_DIR=/inbox` as well, or the folder is just mounted. See [the inbox folder](audiobooks.md#the-inbox-folder) |
 | `/config` | An optional `config.toml` and `.env` | |
 
 The image sets `HONDANA_DATA_DIR`, `HONDANA_EPUB_DIR` and `HONDANA_AUDIOBOOK_DIRS` to these
