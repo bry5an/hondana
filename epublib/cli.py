@@ -312,6 +312,7 @@ def cmd_desktop(args):
 
 
 def main(argv=None):
+    stdio_mod.make_output_safe()
     argv = sys.argv[1:] if argv is None else list(argv)
     if "--self-test" in argv:
         return selftest_mod.run()
