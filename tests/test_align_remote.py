@@ -5,6 +5,7 @@ that writes one 4 s cue per line of {text} and misbehaves on the audio's say-so
 (FAIL, SLEEP, NOSRT)."""
 from __future__ import annotations
 
+import json
 import os
 import signal
 import socket
@@ -17,6 +18,7 @@ import pytest
 import uvicorn
 from fastapi.testclient import TestClient
 
+from conftest import toml_str
 from epublib import cli
 from epublib import align, align_jobs, align_remote
 from epublib.align_remote import RemoteError, Server
@@ -53,7 +55,7 @@ def mac(tmp_path, monkeypatch):
     script.write_text(FAKE, encoding="utf-8")
     cache = tmp_path / "mac-cache"
     monkeypatch.setattr(align_remote, "CACHE_ROOT", cache)
-    cmd = f"{sys.executable} {script} {{audio}} {{text}} {{out}}"
+    cmd = [sys.executable, str(script), "{audio}", "{text}", "{out}"]
     return cmd, cache
 
 
@@ -124,7 +126,7 @@ def _calls(path):
 
 def test_the_text_route_and_the_server_job_write_the_same_text(server, lib, tmp_path):
     scfg = server.cfg
-    scfg.subplz_cmd = f"{sys.executable} -c 'import sys; sys.exit(2)' {{audio}} {{text}}"
+    scfg.subplz_cmd = [sys.executable, "-c", "import sys; sys.exit(2)", "{audio}", "{text}"]
     (lib / "book.m4b").write_bytes(b"FAIL")
     c = TestClient(server.app)
     r = c.get("/api/books/b1/alignment/text")
@@ -379,8 +381,8 @@ def test_missing_lists_the_right_books(live, mac, capsys):
 
 def _cli(live, tmp_path, *args):
     cfg = tmp_path / "mac.toml"
-    cfg.write_text(f'epub_dir = "{tmp_path / "x"}"\ndata_dir = "{tmp_path / "xd"}"\n'
-                   f'[alignment]\nsubplz_cmd = "false {{audio}} {{text}} {{out}}"\n')
+    cfg.write_text(f'epub_dir = {toml_str(tmp_path / "x")}\ndata_dir = {toml_str(tmp_path / "xd")}\n'
+                   f'[alignment]\nsubplz_cmd = "false {{audio}} {{text}} {{out}}"\n', encoding="utf-8")
     return cli.main(["--config", str(cfg), "align-remote", "--server", live.base, *args])
 
 
@@ -403,7 +405,7 @@ def test_without_config_the_machines_align_toml_names_the_server_and_command(
         live, mac, tmp_path, monkeypatch, capsys):
     mine = tmp_path / "align.toml"
     mine.write_text(f'server = "{live.base}"\n'
-                    f'[alignment]\nsubplz_cmd = "false {{audio}} {{text}} {{out}}"\n')
+                    f'[alignment]\nsubplz_cmd = "false {{audio}} {{text}} {{out}}"\n', encoding="utf-8")
     monkeypatch.setattr(align_remote, "USER_CONFIG", mine)
     assert cli.main(["align-remote", "--missing", "--dry-run"]) == 0
     assert f"on {live.base} with" in capsys.readouterr().out
@@ -439,8 +441,8 @@ def test_missing_run_continues_past_a_failure(live, mac, lib, tmp_path, capsys):
     cfg = tmp_path / "mac.toml"
     script = tmp_path / "fake_subplz.py"
     script.write_text(FAKE, encoding="utf-8")
-    cfg.write_text(f'epub_dir = "{tmp_path / "x"}"\ndata_dir = "{tmp_path / "xd"}"\n'
-                   f'[alignment]\nsubplz_cmd = "{sys.executable} {script} {{audio}} {{text}} {{out}}"\n')
+    cfg.write_text(f'epub_dir = {toml_str(tmp_path / "x")}\ndata_dir = {toml_str(tmp_path / "xd")}\n'
+                   f'[alignment]\nsubplz_cmd = {toml_str([sys.executable, str(script), "{audio}", "{text}", "{out}"])}\n', encoding="utf-8")
     code = cli.main(["--config", str(cfg), "align-remote", "--server", live.base, "--missing", "--run"])
     assert code == 1  # one failed...
     assert live.status("b2")["alignment"]["state"] == "ready"  # ...the next one still ran
@@ -449,6 +451,7 @@ def test_missing_run_continues_past_a_failure(live, mac, lib, tmp_path, capsys):
 
 # ── Ctrl-C ───────────────────────────────────────────────────────────────────
 
+@pytest.mark.skipif(os.name == "nt", reason="sends SIGINT and probes the pid with os.kill(pid, 0)")
 def test_ctrl_c_leaves_no_subplz_process(tmp_path, mac):
     """Interrupt a `transcribe` in a child Python and check the command died with it."""
     audio = tmp_path / "a" / "book.m4b"
@@ -459,9 +462,9 @@ def test_ctrl_c_leaves_no_subplz_process(tmp_path, mac):
     work = tmp_path / "work"
     work.mkdir()
     pidfile = tmp_path / "pid"
-    code = ("import sys; from pathlib import Path; from epublib import align_jobs; "
-            "align_jobs.transcribe(sys.argv[1], Path(sys.argv[2]), Path(sys.argv[3]), Path(sys.argv[4]), 0)")
-    parent = subprocess.Popen([sys.executable, "-c", code, mac[0], str(audio), str(text), str(work)],
+    code = ("import json, sys; from pathlib import Path; from epublib import align_jobs; "
+            "align_jobs.transcribe(json.loads(sys.argv[1]), Path(sys.argv[2]), Path(sys.argv[3]), Path(sys.argv[4]), 0)")
+    parent = subprocess.Popen([sys.executable, "-c", code, json.dumps(mac[0]), str(audio), str(text), str(work)],
                               env={**os.environ, "PIDFILE": str(pidfile)},
                               cwd=os.path.dirname(os.path.dirname(__file__)), stderr=subprocess.PIPE)
     end = time.time() + 20
@@ -484,6 +487,7 @@ def test_ctrl_c_leaves_no_subplz_process(tmp_path, mac):
     assert not align_jobs.out_dir(work, 0).exists()  # nothing counted as done
 
 
+@pytest.mark.skipif(os.name == "nt", reason="sends SIGINT and probes the pid with os.kill(pid, 0)")
 def test_ctrl_c_on_the_command_exits_130_and_keeps_the_work(live, lib, tmp_path):
     """The real command line, interrupted mid-transcription."""
     (lib / "book.m4b").write_bytes(b"SLEEP" * 20)
@@ -491,8 +495,8 @@ def test_ctrl_c_on_the_command_exits_130_and_keeps_the_work(live, lib, tmp_path)
     script.write_text(FAKE, encoding="utf-8")
     pidfile = tmp_path / "pid"
     cfg = tmp_path / "mac.toml"
-    cfg.write_text(f'epub_dir = "{tmp_path / "x"}"\ndata_dir = "{tmp_path / "xd"}"\n'
-                   f'[alignment]\nsubplz_cmd = "{sys.executable} {script} {{audio}} {{text}} {{out}}"\n')
+    cfg.write_text(f'epub_dir = {toml_str(tmp_path / "x")}\ndata_dir = {toml_str(tmp_path / "xd")}\n'
+                   f'[alignment]\nsubplz_cmd = {toml_str([sys.executable, str(script), "{audio}", "{text}", "{out}"])}\n', encoding="utf-8")
     home = tmp_path / "home"
     proc = subprocess.Popen([sys.executable, "cli.py", "--config", str(cfg), "align-remote", "b1",
                              "--server", live.base],

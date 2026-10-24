@@ -95,6 +95,12 @@ def make_cfg(tmp_path: Path, **overrides) -> Config:
     return Config(**defaults)
 
 
+def toml_str(value) -> str:
+    """`value` as a TOML basic string or array of them. A Windows path pasted
+    between quotes reads `\\U` and `\\a` as escapes; JSON escaping is valid TOML."""
+    return json.dumps(value if isinstance(value, list) else str(value), ensure_ascii=False)
+
+
 @pytest.fixture
 def cfg(tmp_path) -> Config:
     return make_cfg(tmp_path)
@@ -106,9 +112,10 @@ def server(tmp_path, monkeypatch):
     catalog all under tmp_path — never the real data.json)."""
     cfg_file = tmp_path / "config.toml"
     cfg_file.write_text(
-        f'epub_dir = "{tmp_path / "epubs"}"\ndata_dir = "{tmp_path / "data"}"\n'
+        f'epub_dir = {toml_str(tmp_path / "epubs")}\ndata_dir = {toml_str(tmp_path / "data")}\n'
         # Never default to the real data.json: tests write the catalog.
-        f'audiobook_data = "{tmp_path / "catalog.json"}"\n'
+        f'audiobook_data = {toml_str(tmp_path / "catalog.json")}\n',
+        encoding="utf-8",
     )
     # The genre vocabulary is whatever the catalog carries.
     (tmp_path / "catalog.json").write_text(json.dumps({

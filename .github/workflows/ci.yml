@@ -26,6 +26,8 @@ jobs:
         with:
           enable-cache: true
           cache-dependency-glob: uv.lock
+          # spaCy has no wheels for newer Pythons yet, and macos-latest's default is 3.15.
+          python-version: "3.13"
       - run: uv lock --check
       - run: uv sync --frozen
       - run: uv run ruff check .

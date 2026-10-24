@@ -191,7 +191,7 @@ def test_a_book_whose_details_were_typed_in_links_and_can_be_synced(lib, tmp_pat
         "lines = text.read_text(encoding='utf-8').splitlines()\n"
         "cues = ['%d\\n%s --> %s\\n%s\\n' % (i + 1, ts(i * 4000), ts(i * 4000 + 4000), s) for i, s in enumerate(lines)]\n"
         "(out / (audio.stem + '.srt')).write_text('\\n'.join(cues), encoding='utf-8')\n")
-    cfg.subplz_cmd = f"{sys.executable} {script} {{audio}} {{text}} {{out}}"
+    cfg.subplz_cmd = [sys.executable, str(script), "{audio}", "{text}", "{out}"]
     assert client.get("/api/books/b1/status").json()["alignment"]["eligible"] is True
     r = client.post("/api/books/b1/alignment/generate")
     assert r.status_code == 200, r.text
