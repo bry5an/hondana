@@ -22,11 +22,9 @@ be matched) leaves any existing alignment untouched.
 from __future__ import annotations
 
 import atexit
-import os
 import queue
 import shlex
 import shutil
-import signal
 import subprocess
 import threading
 import time
@@ -36,9 +34,9 @@ from pathlib import Path
 
 from . import align, annotate
 from .config import Config
+from .procs import popen_flags, stop_process
 
 _PLACEHOLDERS = ("{audio}", "{text}", "{out}")
-_WINDOWS = os.name == "nt"
 Command = str | list[str]  # `[alignment] subplz_cmd`: a shell-style string, or an argv array
 _TAIL_BYTES = 600  # how much of the command's output an error message carries
 
@@ -83,30 +81,6 @@ def _argv(template: Command, audio: Path, text: Path, out: Path) -> list[str]:
             arg = arg.replace(token, value)  # not str.format: other braces stay as typed
         argv.append(arg)
     return argv
-
-
-def popen_flags() -> dict:
-    """Popen arguments that put the command in a group `stop_process` can end: its
-    own session on POSIX, its own process group on Windows."""
-    if _WINDOWS:
-        return {"creationflags": getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0x200)}
-    return {"start_new_session": True}
-
-
-def stop_process(proc: subprocess.Popen) -> None:
-    """Terminate the command and anything it spawned (it runs in its own group, see
-    `popen_flags`). Windows has no killpg: `taskkill /T` walks the process tree."""
-    if _WINDOWS:
-        try:
-            subprocess.run(["taskkill", "/T", "/F", "/PID", str(proc.pid)],
-                           stdin=subprocess.DEVNULL, capture_output=True, check=False)
-        except OSError:
-            proc.terminate()
-        return
-    try:
-        os.killpg(proc.pid, signal.SIGTERM)
-    except (ProcessLookupError, PermissionError):
-        pass
 
 
 def out_dir(work: Path, i: int) -> Path:
