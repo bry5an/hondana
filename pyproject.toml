@@ -23,6 +23,7 @@ dependencies = [
     "genanki>=0.13.1",
     "zeroconf>=0.151.5",
     "segno>=1.6.6",
+    "mutagen>=1.48.1",
 ]
 
 [project.scripts]

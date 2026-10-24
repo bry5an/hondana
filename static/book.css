@@ -310,16 +310,8 @@ body.dark .study-band.s-heavy { color: #f0b0a6; }
   .book-title { font-size: 1.25rem; }
 }
 
-/* Edit details dialog (wireDetails in book.js): a wider .modal-box that scrolls on small screens. */
-.modal-box.bd-modal { max-width: 560px; max-height: 88vh; gap: 0; padding: 0; overflow: hidden; }
-/* Header and the Save bar stay put; only the form and the audiobook block scroll between them. */
-.bd-modal-head { padding: 18px 24px 12px; border-bottom: 1px solid var(--border); }
-.bd-scroll { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 16px 24px; display: flex; flex-direction: column; gap: 14px; }
-.bd-modal-foot { padding: 12px 24px; border-top: 1px solid var(--border); background: var(--panel); }
-.bd-modal-foot:empty { display: none; }
+/* The Edit details dialog's frame (.bd-modal) is in app.css, shared with /audiobook-series. */
 .ab-apply { margin: 0 0 8px; font-size: 0.78rem; color: var(--muted); }
-.bd-modal-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
-.bd-modal-head .modal-title { font-family: 'Baloo 2', 'Hanken Grotesk', sans-serif; font-size: 1.05rem; }
 
 /* Marking read (#272): the cover bumps and a check is pressed onto its corner, then peels
    away. Same moves as the known-words card (app.css); a fixed dark green with white reads in both themes. */

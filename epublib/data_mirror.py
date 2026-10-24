@@ -6,7 +6,9 @@ collection via `cli.py all`. These files aren't: the web UI writes
 pairing_overrides.json, series_overrides.json, genre_overrides.json,
 title_overrides.json, cover_overrides.json (plus the images under
 covers/custom/) and audiobook_hidden.json (hand-picked, keyed to this
-machine's book_ids, and hundreds of ids in the prune list's case);
+machine's book_ids, and hundreds of ids in the prune list's case); the
+audiobook matches, hand-typed audiobook details and the aliases left when an
+audiobook gained a key (audiobook_rekey.py);
 audiobook_catalog_base.json (an optional hand-curated audiobook catalog) and
 natively_levels.json (its difficulty ratings, ~1 h to re-fetch and not
 guaranteed to match the same books);
@@ -39,7 +41,11 @@ ROOT_FILES = (
     "audiobook_catalog_base.json",
     "natively_levels.json",
     "audiobook_link_overrides.json",
+    "audiobook_assignments.json",
+    "audiobook_metadata_overrides.json",
+    "audiobook_aliases.json",
     "profiles.json",
+    "settings.json",
 )
 # Per-user files, mirrored from each data/users/<slug>/ preserving the subpath.
 # Everything in a user folder is copied *except* these derived, rebuildable
@@ -77,6 +83,11 @@ def push(cfg: Config) -> None:
     if cfg.custom_covers_dir.is_dir():
         for src in sorted(p for p in cfg.custom_covers_dir.iterdir() if p.is_file()):
             _copy(src, mirror_dir / "covers" / "custom" / src.name)
+
+    # Hand-uploaded audiobook covers, likewise (not their thumbnails).
+    if cfg.audiobook_custom_covers_dir.is_dir():
+        for src in sorted(p for p in cfg.audiobook_custom_covers_dir.iterdir() if p.is_file()):
+            _copy(src, mirror_dir / "covers" / "audiobooks" / "custom" / src.name)
 
     # Audiobook alignment SRTs: a Whisper run to make again. The map beside
     # them is derived and left out.

@@ -1,0 +1,121 @@
+/* /settings and /login. Cards are the shared shelf card (.add-card in app.css) inside the
+   760px .add-wrap; this file adds the form fields (STYLE.md §9), source chips and banners. */
+
+.set-card h2 { margin: 0 0 6px; }
+.set-card .hint {
+  margin: 0 0 14px;
+  max-width: 64ch;
+  color: var(--muted);
+  font-size: 0.82rem;
+  line-height: 1.5;
+}
+.set-card code, .login-card code { font-size: 0.85em; overflow-wrap: anywhere; }
+
+.set-form { display: flex; flex-direction: column; gap: 16px; }
+.set-fld { display: flex; flex-direction: column; gap: 6px; }
+.set-fld > label {
+  font: 700 0.69rem 'Space Mono', monospace;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.set-fld input[type="text"], .set-fld input[type="number"], .set-fld input[type="password"],
+.set-fld textarea, .set-fld select {
+  border: 2px solid var(--border);
+  border-radius: 12px;
+  padding: 10px 13px;
+  font: 600 0.85rem 'Hanken Grotesk', sans-serif;
+  color: var(--text);
+  background: var(--panel2);
+  min-height: 40px;
+  width: 100%;
+  box-sizing: border-box;
+}
+.set-fld textarea { resize: vertical; line-height: 1.5; }
+.set-fld input:focus, .set-fld textarea:focus, .set-fld select:focus { border-color: var(--accent); outline: none; }
+.set-fld input:focus-visible, .set-fld textarea:focus-visible, .set-fld select:focus-visible { outline: 2px solid var(--accent-ink); outline-offset: 1px; }
+.set-fld input:disabled, .set-fld textarea:disabled, .set-fld select:disabled { opacity: 0.7; cursor: not-allowed; }
+.set-fld input::placeholder { color: var(--muted); }
+.set-check { display: flex; align-items: center; gap: 8px; font-weight: 700; font-size: 0.88rem; }
+.set-check input { accent-color: var(--accent); width: 18px; height: 18px; }
+
+.set-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; }
+.set-meta .link-btn { color: var(--accent-ink); font-size: 0.78rem; font-weight: 700; }
+.set-help { margin: 0; color: var(--muted); font-size: 0.78rem; line-height: 1.45; }
+.set-help:empty { display: none; }
+.set-check-result { margin: 0; font-size: 0.8rem; }
+.set-check-result:empty { display: none; }
+.set-check-result.ok { color: var(--ok-ink); }
+.set-check-result.err { color: var(--danger-ink); }
+
+/* Where a value came from (STYLE.md §8 neutral chip; "Saved here" in the accent tint). */
+.set-src {
+  display: inline-block;
+  padding: 2px 9px;
+  border-radius: 999px;
+  background: var(--panel2);
+  color: var(--muted);
+  font-size: 0.7rem;
+  font-weight: 700;
+}
+.set-src--settings { background: color-mix(in srgb, var(--accent) 14%, var(--panel)); color: var(--accent-ink); }
+.set-src--env { border: 1px dashed var(--border); }
+.set-src--restart { background: #f6e3c9; color: #8b5c1b; }
+body.dark .set-src--restart { background: #4a3a24; color: #e0b878; }
+
+.set-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px; }
+.set-actions--quiet { margin-top: 14px; }
+.set-actions .submit-btn { padding: 10px 22px; font-size: 0.88rem; }
+.set-status { font-size: 0.8rem; color: var(--muted); }
+.set-status.err { color: var(--danger-ink); }
+
+.set-about { width: 100%; border-collapse: collapse; font-size: 0.85rem; margin-bottom: 12px; }
+.set-about th { text-align: left; color: var(--muted); font-weight: 600; padding: 7px 12px 7px 0; white-space: nowrap; vertical-align: top; }
+.set-about td { padding: 7px 0; border-top: 1px solid var(--border); }
+.set-about tr:first-child td { border-top: none; }
+
+.set-tokens { list-style: none; margin: 0 0 12px; padding: 0; }
+.set-token-row {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  padding: 8px 0; border-top: 1px solid var(--border);
+}
+.set-token-row:first-child { border-top: none; }
+.set-token-new {
+  margin: 0 0 12px;
+  padding: 12px 14px;
+  background: var(--panel2);
+  border: 2px dashed var(--border);
+  border-radius: 12px;
+}
+.set-token-new p { margin: 0 0 8px; font-size: 0.85rem; }
+.set-token-value { display: block; margin-bottom: 10px; font-size: 0.8rem; overflow-wrap: anywhere; }
+
+/* The page's status banners (statusHtml in ui.js). */
+#restart-banner .status-pending, .set-card .status-err {
+  border-radius: 12px;
+  padding: 12px 14px;
+  line-height: 1.5;
+}
+#restart-banner .status-pending {
+  color: var(--text);
+  background: color-mix(in srgb, var(--warn) 18%, var(--panel));
+  border: 1px solid color-mix(in srgb, var(--warn) 45%, transparent);
+}
+#restart-banner .btn { margin-left: 8px; }
+#settings-cards { display: flex; flex-direction: column; gap: 20px; }
+#settings-cards .status-err {
+  color: var(--danger-ink);
+  background: color-mix(in srgb, var(--danger) 10%, var(--panel));
+  border: 1px solid color-mix(in srgb, var(--danger) 30%, transparent);
+  border-radius: 12px;
+  padding: 12px 14px;
+}
+
+.login-card { max-width: 480px; }
+
+@media (max-width: 639px) {
+  .set-fld input[type="text"], .set-fld input[type="number"], .set-fld input[type="password"],
+  .set-fld textarea, .set-fld select { font-size: 1rem; }
+  .set-actions .submit-btn, .set-actions .btn { min-height: 44px; }
+  .set-token-row { flex-wrap: wrap; }
+}

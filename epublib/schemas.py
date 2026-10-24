@@ -401,6 +401,79 @@ class CatalogEntry(BaseModel):
     local: bool = False
 
 
+class AudiobookDetailsRequest(BaseModel):
+    """Every field is optional: omitted = leave alone, null (or "") = back to
+    what the catalog, the tags or the file name say."""
+    title: str | None = None
+    author: str | None = None
+    series: str | None = None
+    order: str | None = None
+    narrators: str | None = None
+    genre: str | None = None
+    description: str | None = None
+    release_date: str | None = None  # YYYY, YYYY-MM or YYYY-MM-DD
+
+
+class AudiobookDetailsState(BaseModel):
+    ab_id: str
+    values: dict           # what the row shows now (the request's fields)
+    auto: dict             # what it would show with no hand edit
+    overridden: list[str]  # fields with a hand-set value
+    source: str            # catalog | tags | filename (a guess) | manual
+    local: bool
+    path: str | None
+    series_names: list[str]
+    cover: dict            # {"url", "overridden", "auto_url"}
+
+
+class AudiobookDetailsResponse(AudiobookDetailsState):
+    status: str
+
+
+class AudiobookMatchRequest(BaseModel):
+    asin: str              # an ASIN, or a pasted Audible link
+    rename: bool = False   # also add " [ASIN]" to the file (or folder) name
+
+
+class AudiobookMatchState(BaseModel):
+    ab_id: str
+    local: bool
+    mode: str              # name | assigned (matched by hand) | tag | none
+    asin: str | None
+    matchable: bool
+    reason: str | None     # why it can't be matched
+    can_rename: bool
+    query: dict            # {"title", "author"}: what to search for first
+    marketplace: dict      # {"code", "label"}
+
+
+class AudiobookMatchResponse(AudiobookDetailsState):
+    status: str
+    old_ab_id: str
+    renamed: bool = False
+    rename_error: str | None = None
+
+
+class AudibleCandidate(BaseModel):
+    asin: str
+    title: str | None
+    author: str | None
+    narrators: str | None
+    series: str | None
+    order: str | None
+    runtime_min: int | None
+    release_date: str | None
+    cover: str | None
+    url: str
+    local: bool        # a file here is already this book
+    in_catalog: bool   # the library already has its details
+
+
+class AudibleSearchResponse(BaseModel):
+    marketplace: dict
+    results: list[AudibleCandidate]
+
+
 class AudiobookLinkState(BaseModel):
     # "auto" (fuzzy match, or none found), "manual" (pinned to an ISBN) or
     # "none" (hand-unlinked).
@@ -554,3 +627,43 @@ class ReaderEventsResponse(BaseModel):
     # The new GET /api/reader/vocab ETag.
     etag: str
     books_moved: int = 0   # books whose Known % or strain this changed
+
+
+# ── admin password (auth.py) ──────────────────────────────────────────────────
+
+class AuthState(BaseModel):
+    password_set: bool
+    admin: bool
+
+
+class LoginRequest(BaseModel):
+    password: str
+
+
+class PasswordRequest(BaseModel):
+    password: str
+
+
+class TokenCreateRequest(BaseModel):
+    name: str = ""
+
+
+class TokenInfo(BaseModel):
+    id: str
+    name: str
+    created_at: int
+    last_used: int | None = None
+
+
+class TokenCreated(TokenInfo):
+    token: str
+
+
+# ── settings (settings.py) ────────────────────────────────────────────────────
+
+class SettingsUpdate(BaseModel):
+    values: dict[str, Any]
+
+
+class CheckPathRequest(BaseModel):
+    path: str

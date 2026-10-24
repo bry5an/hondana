@@ -49,6 +49,9 @@ class Config:
     # Read from the GOOGLE_BOOKS_API_KEY environment variable (.env).
     google_books_api_key: str = ""
 
+    # Which Audible store ASINs belong to and searches go to (audible.MARKETPLACES).
+    audible_marketplace: str = "jp"
+
     # Where your Yomitan dictionary zips live, hosted to the iOS reader
     # (dicts.py). None = data_dir/dicts, filled in by __post_init__.
     dicts_dir: Path | None = None
@@ -70,6 +73,9 @@ class Config:
     discovery_advertise_addresses: list[str] = field(default_factory=list)
     # The address phones are told to use (QR code, connect link); "" = the request's Host.
     public_url: str = ""
+    # Origins (scheme://host[:port]) besides this server's own allowed to make
+    # changes from a browser (auth.origin_ok).
+    trusted_origins: list[str] = field(default_factory=list)
 
     # Where each value came from (default | file | settings | env), the file read
     # (None when there is none) and the home folder defaults sit under.
@@ -239,6 +245,36 @@ class Config:
     @property
     def audiobook_index(self) -> Path:
         return self.data_dir / "audiobook_library.json"
+
+    @property
+    def audiobook_tags_cache(self) -> Path:
+        """Each audio file's embedded tags, by (size, mtime_ns); rebuildable."""
+        return self.data_dir / "audiobook_tags.json"
+
+    @property
+    def audiobook_covers_dir(self) -> Path:
+        """Covers taken from audiobook tags or a folder's cover.jpg, by fid; rebuildable."""
+        return self.covers_dir / "audiobooks"
+
+    @property
+    def audiobook_custom_covers_dir(self) -> Path:
+        """Hand-uploaded audiobook covers, by ab_id (audiobook_details.py); mirrored."""
+        return self.audiobook_covers_dir / "custom"
+
+    @property
+    def audiobook_assignments(self) -> Path:
+        """{fid: catalog key}: the book a file was matched to by hand."""
+        return self.data_dir / "audiobook_assignments.json"
+
+    @property
+    def audiobook_metadata_overrides(self) -> Path:
+        """{ab_id: {field: value}}: audiobook details typed by hand, over any catalog row."""
+        return self.data_dir / "audiobook_metadata_overrides.json"
+
+    @property
+    def audiobook_aliases(self) -> Path:
+        """{old ab_id: new ab_id}, kept when an audiobook gains a key (audiobook_rekey.py)."""
+        return self.data_dir / "audiobook_aliases.json"
 
     @property
     def consolidation_plan(self) -> Path:

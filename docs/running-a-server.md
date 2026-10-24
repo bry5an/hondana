@@ -145,8 +145,14 @@ A backup you've never restored isn't a backup: clone the repo somewhere else now
 
 ## Security
 
-Hondana has **no login**. Anyone who can reach the port can read, download, edit and delete. Keep
-it on your home network:
+Out of the box Hondana has **no login**: anyone who can reach the port can read, download, edit
+and delete. **Settings › Admin password** keeps changes to whoever knows it: Settings, Admin, and
+adding, editing and deleting books then need it, while browsing, downloads, each reader's own
+marks and the iPhone app stay open. A forgotten password is cleared on the server with
+`uv run cli.py admin-password clear`. Scripts (such as `align-remote`) use a token from
+**Settings › Script tokens**. Browsers can't make changes from another site's page either way.
+
+Even with a password, keep it on your home network:
 
 - Don't forward the port or expose it to the internet.
 - For access away from home, use a VPN to your network (WireGuard, Tailscale, …). Hondana for
@@ -154,4 +160,7 @@ it on your home network:
   a VPN host name such as a Tailscale `*.ts.net` name needs `https://`: `tailscale serve`
   provides it (see [networking.md](networking.md#5-away-from-home-tailscale)).
 - If you ever need it on the internet, put an authenticating reverse proxy in front (Caddy with
-  basic auth, for example). The app itself needs no change.
+  basic auth, for example): the admin password doesn't protect browsing and downloads.
+- Behind a reverse proxy, forward the `Host` header (`proxy_set_header Host $host;` in nginx),
+  or set `trusted_origins` in the config: changes from the browser are refused when the page's
+  origin doesn't match the host the request arrived for.

@@ -28,6 +28,7 @@ import tomllib
 from dataclasses import dataclass
 from pathlib import Path
 
+from . import audible
 from .config import ROOT, Config
 
 SCHEMA = 1
@@ -45,7 +46,7 @@ class Key:
     `default` is a value or a function of the load context."""
     name: str
     field: str
-    kind: str  # path | paths | optpath | str | list | secret | int | optint | float | bool
+    kind: str  # path | paths | optpath | str | choice | list | secret | int | optint | float | bool
     default: object
     label: str
     group: str  # library | audiobooks | network | metadata | advanced | system
@@ -54,6 +55,7 @@ class Key:
     file_only: bool = False  # never set from the GUI: it runs a command, or moves where data lives
     gui: bool = True         # listed on the Settings page at all
     env_aliases: tuple[str, ...] = ()
+    choices: tuple[tuple[str, str], ...] = ()  # (value, label) for a `choice`
 
     @property
     def env(self) -> str:
@@ -92,6 +94,11 @@ KEYS: tuple[Key, ...] = (
     Key("google_books_api_key", "google_books_api_key", "secret", "", "Google Books API key",
         "metadata", "Fills in genres and descriptions by ISBN. Free from a Google Cloud project "
         "with the Books API enabled.", env_aliases=("GOOGLE_BOOKS_API_KEY",)),
+    Key("audible.marketplace", "audible_marketplace", "choice", audible.DEFAULT_MARKETPLACE,
+        "Audible store", "metadata",
+        "The Audible store your audiobooks are bought from. It decides where book details are "
+        "looked up by ASIN and where Match searches, and which site the Audible links open.",
+        choices=tuple((code, m.label) for code, m in audible.MARKETPLACES.items())),
     Key("natively.delay", "natively_delay", "float", 0.4, "Natively request delay (s)", "advanced",
         "Seconds between learnnatively.com requests. Please keep it polite."),
     Key("natively.min_score", "natively_min_score", "float", 0.55, "Natively match threshold",
@@ -121,6 +128,9 @@ KEYS: tuple[Key, ...] = (
     Key("public_url", "public_url", "str", "", "Address for phones", "network",
         "The address the phone's QR code and connect link use, e.g. an https:// Tailscale name. "
         "Default: the address you opened the page with."),
+    Key("trusted_origins", "trusted_origins", "list", [], "Trusted origins", "system",
+        "Extra browser origins allowed to make changes, e.g. a proxy that rewrites Host.",
+        file_only=True, gui=False),
     Key("data_mirror.publish", "data_mirror_publish", "bool", False, "Back up with cli.py push",
         "system", file_only=True, gui=False),
     Key("data_mirror.path", "data_mirror_path", "optpath", None, "Backup repo clone", "system",
@@ -219,6 +229,12 @@ def coerce(key: Key, value, base: Path):
             return [_path(v, base) for v in items]
         if key.kind in ("str", "secret"):
             return str(value).strip()
+        if key.kind == "choice":
+            text = str(value).strip().lower()
+            if text not in dict(key.choices):
+                raise SettingError(f"{key.name} must be one of {', '.join(dict(key.choices))}, "
+                                   f"not {value!r}")
+            return text
         if key.kind == "list":
             if isinstance(value, str):
                 text = value.strip()
@@ -271,6 +287,66 @@ def read_overlay(data_dir: Path) -> dict:
     except (OSError, ValueError) as exc:
         print(f"settings: ignoring {path} ({exc})", file=sys.stderr)
         return {}
+
+
+def save_overlay(data_dir: Path, values: dict) -> None:
+    """Write the GUI's saved values (the whole `{name: value}` map)."""
+    from .index_store import save_json
+
+    save_json(overlay_path(data_dir), {"schema": SCHEMA, "values": values})
+
+
+def env_locked(key: Key) -> str | None:
+    """The environment variable that sets `key`, if one does (the GUI can't change it)."""
+    found = _env_value(key)
+    if found is _MISSING:
+        return None
+    return next(n for n in (key.env, *key.env_aliases) if n in os.environ)
+
+
+def to_json(key: Key, value):
+    """A typed value as the overlay stores it."""
+    if key.kind == "paths":
+        return [str(p) for p in value]
+    if isinstance(value, Path):
+        return str(value)
+    return value
+
+
+def validate(key: Key, value) -> str | None:
+    """Why a value can't be saved from the GUI, or None. Paths must already exist:
+    the GUI never creates a folder (it may be an unmounted drive)."""
+    import ipaddress
+
+    if key.kind == "path":
+        return None if value.is_dir() else f"No folder at {value}"
+    if key.kind == "paths":
+        if not value:
+            return "Give at least one folder"
+        missing = [str(p) for p in value if not p.is_dir()]
+        return f"No folder at {', '.join(missing)}" if missing else None
+    if key.name == "port" and not 1 <= value <= 65535:
+        return "A port is a number from 1 to 65535"
+    if key.name == "discovery.advertise_port" and value is not None and not 1 <= value <= 65535:
+        return "A port is a number from 1 to 65535"
+    if key.name == "host":
+        try:
+            ipaddress.ip_address(value)
+        except ValueError:
+            return "Use an IP address such as 0.0.0.0 or 127.0.0.1"
+    if key.name.endswith("min_score") and not 0 <= value <= 1:
+        return "A score between 0 and 1"
+    if key.name == "natively.delay" and value < 0:
+        return "Seconds, 0 or more"
+    if key.name == "public_url" and value and not value.startswith(("http://", "https://")):
+        return "Start it with http:// or https://"
+    if key.name == "discovery.advertise_addresses":
+        for a in value:
+            try:
+                ipaddress.IPv4Address(a)
+            except ValueError:
+                return f"{a} isn't an IPv4 address"
+    return None
 
 
 def load(path: Path | str | None = None) -> Config:

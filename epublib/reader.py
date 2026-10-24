@@ -21,7 +21,9 @@ profile's files; none of them is derived, so none belongs in `USER_DERIVED`):
   updated_at}}`. Keyed by stable key (`pairing.stable_key`) because `book_id`
   changes on rename and differs between machines.
 - `audio_progress.json`: `{ab_id: {track, seconds, updated_at}}`, where the
-  listener is in each audiobook. Keyed by `ab_id`, which is all an audiobook has.
+  listener is in each audiobook. Keyed by `ab_id`, which is all an audiobook has
+  (it is sticky across moves and renames; when it does change, the entry moves
+  with it and `audiobook_aliases.json` maps late events, audiobook_rekey.py).
 
 `POST /api/reader/events` is how they are written. The phone keeps an
 outbox of events and replays it when it is back on the LAN, so every function
@@ -275,8 +277,10 @@ def merge_progress(cfg: Config, events: list[dict]) -> int:
 
 def merge_audio_progress(cfg: Config, events: list[dict]) -> int:
     """Last write wins by `ts`, per `ab_id`, as `merge_progress` does for books.
-    Returns how many entries were updated."""
-    newest = collapse(events, "ab_id")
+    An id the audiobook has since left (it gained a key, audiobook_rekey.py) is
+    read as the one it went to. Returns how many entries were updated."""
+    aliases: dict = load_json(cfg.audiobook_aliases, {})
+    newest = collapse([{**e, "ab_id": aliases.get(e["ab_id"], e["ab_id"])} for e in events], "ab_id")
     stored = load_audio_progress(cfg)
     changed = 0
     for key, e in newest.items():

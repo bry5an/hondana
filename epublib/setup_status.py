@@ -55,8 +55,9 @@ def steps(cfg: Config, library: dict) -> list[dict]:
     return [
         _step("epub_dir", "Point Hondana at your EPUBs", has_files,
               f"Found books in {cfg.epub_dir}." if has_files else
-              f"No EPUBs in {cfg.epub_dir}. Add some, or set epub_dir in the server's config.",
-              "/add", link="Add Book"),
+              f"No EPUBs in {cfg.epub_dir}. Add some, or choose your EPUB folder in Settings.",
+              "/settings#library" if not has_files else "/add",
+              link="Settings" if not has_files else "Add Book"),
         _library_step(cfg, library),
         _step("known", "Tell it which words you know", known > 0,
               f"{known:,} known words." if known else
@@ -65,8 +66,9 @@ def steps(cfg: Config, library: dict) -> list[dict]:
         _step("audiobooks", "Add audiobooks", bool(audio_files),
               f"{len(audio_files)} audiobooks scanned." if audio_files else
               ("Folders are set but nothing is scanned yet: run the full pipeline." if audio_dirs else
-               "Set audiobook_dirs in the server's config, then scan."),
-              "/admin", required=False, link="Admin"),
+               "Choose your audiobook folders in Settings, then scan."),
+              "/admin" if audio_dirs else "/settings#audiobooks", required=False,
+              link="Admin" if audio_dirs else "Settings"),
         _step("phone", "Connect Hondana for iPhone", phone,
               "Your phone has synced." if phone else
               "Scan the QR code on your profile page to read on your phone.",

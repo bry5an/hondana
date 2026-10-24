@@ -38,6 +38,7 @@ There is no account, no cloud, and nothing to pay for.
 | **Known words** (sidebar) | Import your deck, review the library's most common unknown words |
 | **Profile** (sidebar) | Your counts, the books you've read, and the profile switcher |
 | **Admin** | Run the pipeline, prune the audiobook list |
+| **Settings** | Your library folders, network and phone, online lookups, the admin password |
 
 ## What you need
 
@@ -155,12 +156,15 @@ To keep it running all the time (systemd, a reverse proxy, updates), see
 
 - Everything stays on your machine. The only outside services it calls are:
   - learnnatively.com, for difficulty levels;
-  - Audible Japan's public catalog, for metadata about new audiobooks;
+  - Audible's public catalog (the store you choose in Settings, Japan by default), for metadata
+    about new audiobooks and to search when you match one by hand;
   - Google Books, only if you add a key.
 
   Nothing you read or mark leaves your network.
-- **There is no login.** Anyone on your network can browse, download, edit and delete. Keep it on
-  your home network; don't forward its port to the internet.
+- **No login by default.** Anyone on your network can browse, download, edit and delete. Set an
+  **admin password** in **Settings** to keep changes (Settings, Admin, adding, editing and deleting
+  books) to you; browsing, reading and the iPhone app stay open. Either way, keep Hondana on your
+  home network or a private VPN, and never forward its port to the internet.
 
 ## Troubleshooting
 

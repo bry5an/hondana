@@ -13,6 +13,7 @@ import asyncio
 import gzip
 import html
 import io
+import os
 import re
 import shutil
 import sys
@@ -28,15 +29,19 @@ from pathlib import Path
 
 import requests as req_lib
 from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, Request, UploadFile
-from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.responses import Response
 from starlette.types import Scope
 
 from . import anki_notetype as anki_notetype_mod
+from . import auth as auth_mod
 from . import align as align_mod
 from . import annotate as annotate_mod
+from . import audible as audible_mod
 from . import audiobook_catalog as audiobook_catalog_mod
+from . import audiobook_details as audiobook_details_mod
+from . import audiobook_match as audiobook_match_mod
 from . import audiobook_scanner as audiobook_scanner_mod
 from . import audiobook_xref as xref_mod
 from . import align_jobs as align_jobs_mod
@@ -55,6 +60,7 @@ from . import profiles as profiles_mod
 from . import purge as purge_mod
 from . import reader as reader_mod
 from . import scanner as scanner_mod
+from . import settings as settings_mod
 from . import setup_status as setup_status_mod
 from . import schemas
 from . import search_index as search_index_mod
@@ -98,7 +104,13 @@ async def _lifespan(_app: FastAPI):
         await advertiser.stop()
 
 
-app = FastAPI(title="Hondana", lifespan=_lifespan)
+def _auth_gate(request: Request) -> None:
+    """Every route: the cross-site check and, once a password is set, the admin gate
+    (auth.py). Reads the live cfg, so a password set from the CLI applies at once."""
+    auth_mod.gate(lambda: cfg, request)
+
+
+app = FastAPI(title="Hondana", lifespan=_lifespan, dependencies=[Depends(_auth_gate)])
 # /api/audiobooks can be megabytes of JSON; neither uvicorn nor a proxy
 # compresses. Text-only so epub/m4b downloads and range requests stay raw.
 app.add_middleware(TextGZipMiddleware)
@@ -252,6 +264,8 @@ PAGES = {
     "/profile": "profile.html",
     "/known": "known.html",
     "/admin": "admin.html",
+    "/login": "login.html",
+    "/settings": "settings.html",
 }
 
 
@@ -270,6 +284,88 @@ for _path, _template in PAGES.items():
 @app.get("/healthz", response_model=schemas.StatusResponse)
 def healthz() -> dict:
     return {"status": "ok"}
+
+
+# ── admin password (auth.py) ──────────────────────────────────────────────────
+
+_login_throttle = auth_mod.Throttle()
+
+
+def _https(request: Request) -> bool:
+    return request.url.scheme == "https" or request.headers.get("x-forwarded-proto", "").startswith("https")
+
+
+def _with_session(resp: JSONResponse, request: Request) -> JSONResponse:
+    resp.set_cookie(auth_mod.COOKIE, auth_mod.make_session(cfg), max_age=auth_mod.SESSION_DAYS * 86400,
+                    httponly=True, samesite="strict", secure=_https(request), path="/")
+    return resp
+
+
+@app.get("/api/auth/state", response_model=schemas.AuthState)
+def auth_state(request: Request) -> dict:
+    """Whether a password is set, and whether this browser may use the admin pages."""
+    return {"password_set": auth_mod.password_set(cfg), "admin": auth_mod.is_admin(cfg, request)}
+
+
+@app.post("/api/auth/login", response_model=schemas.AuthState)
+def auth_login(payload: schemas.LoginRequest, request: Request) -> JSONResponse:
+    who = request.client.host if request.client else "?"
+    wait = _login_throttle.wait(who)
+    if wait:
+        raise HTTPException(status_code=429, detail=f"Too many tries. Wait {wait} s.",
+                            headers={"Retry-After": str(wait)})
+    stored = auth_mod.state(cfg).get("password")
+    if not stored:
+        return JSONResponse({"password_set": False, "admin": True})
+    if not auth_mod.verify_password(payload.password, stored):
+        _login_throttle.failed(who)
+        raise HTTPException(status_code=401, detail="Wrong password")
+    _login_throttle.succeeded(who)
+    return _with_session(JSONResponse({"password_set": True, "admin": True}), request)
+
+
+@app.post("/api/auth/logout", response_model=schemas.StatusResponse)
+def auth_logout() -> JSONResponse:
+    resp = JSONResponse({"status": "signed_out"})
+    resp.delete_cookie(auth_mod.COOKIE, path="/")
+    return resp
+
+
+@app.post("/api/auth/password", response_model=schemas.AuthState)
+def auth_set_password(payload: schemas.PasswordRequest, request: Request) -> JSONResponse:
+    """Set or change the admin password (the gate already required the old one's
+    session). Changing it signs every other browser out; this one gets a fresh session."""
+    try:
+        auth_mod.set_password(cfg, payload.password)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return _with_session(JSONResponse({"password_set": True, "admin": True}), request)
+
+
+@app.delete("/api/auth/password", response_model=schemas.AuthState)
+def auth_clear_password() -> JSONResponse:
+    auth_mod.clear_password(cfg)
+    resp = JSONResponse({"password_set": False, "admin": True})
+    resp.delete_cookie(auth_mod.COOKIE, path="/")
+    return resp
+
+
+@app.get("/api/auth/tokens", response_model=list[schemas.TokenInfo])
+def auth_tokens() -> list:
+    return auth_mod.list_tokens(cfg)
+
+
+@app.post("/api/auth/tokens", response_model=schemas.TokenCreated)
+def auth_create_token(payload: schemas.TokenCreateRequest) -> dict:
+    row, token = auth_mod.create_token(cfg, payload.name)
+    return {**row, "token": token}
+
+
+@app.delete("/api/auth/tokens/{token_id}", response_model=schemas.StatusResponse)
+def auth_revoke_token(token_id: str) -> dict:
+    if not auth_mod.revoke_token(cfg, token_id):
+        raise HTTPException(status_code=404, detail="No such token")
+    return {"status": "revoked"}
 
 
 # ── pairing review API (LAN-only; writes the overrides file) ─────────────────
@@ -549,6 +645,29 @@ def cover(book_id: str, full: int = 0) -> FileResponse:
     )
 
 
+@app.get("/covers/audiobook/{ab_id}")
+def audiobook_cover(ab_id: str, request: Request, full: int = 0):
+    """An audiobook's hand-set cover, else a local file's own (from its tags, or
+    its folder's cover.jpg), as a thumbnail unless `full`. Versioned URLs
+    (audiobook_scanner.cover_url, audiobook_catalog) make it safe to cache for good."""
+    entry = _cached_json(cfg.audiobook_files_index, {}).get(ab_id)
+    custom = audiobook_details_mod.custom_cover_path(cfg, ab_id)
+    if not entry and not custom:
+        moved = _moved_audiobook(ab_id, request, "/covers/audiobook/")
+        if moved:
+            return moved
+    src = custom or (cfg.data_dir / entry["cover"] if entry and entry.get("cover") else None)
+    if src is None or not src.exists():
+        raise HTTPException(status_code=404, detail="No cover")
+    path, media_type = src, None
+    if not full:
+        thumb = thumbs_mod.ensure_thumb(cfg.data_dir, ab_id, src, src.parent / "thumbs" / f"{src.stem}.webp")
+        if thumb is not None:
+            path, media_type = thumb, "image/webp"
+    return FileResponse(path, media_type=media_type,
+                        headers={"Cache-Control": "public, max-age=31536000, immutable"})
+
+
 @app.get("/api/audiobooks")
 def api_audiobooks() -> JSONResponse:
     index = _load_audiobooks()
@@ -672,6 +791,21 @@ def _delete_audiobook_locked(ab_id: str) -> JSONResponse:
             warnings.append(f"Directory not found: {entry['path']}")
         except OSError as exc:
             raise HTTPException(status_code=500, detail=f"Failed to delete directory: {exc}")
+    elif entry.get("files"):
+        # A `tracks` book is one album of a folder that may hold others: only
+        # its own files go, then the folder if nothing else is left in it.
+        for name in entry["files"]:
+            try:
+                (path / name).unlink()
+                deleted_files.append(name)
+            except FileNotFoundError:
+                warnings.append(f"File not found: {entry['path']}/{name}")
+            except OSError as exc:
+                raise HTTPException(status_code=500, detail=f"Failed to delete file: {exc}")
+        try:
+            path.rmdir()
+        except OSError:
+            pass
     else:
         try:
             path.unlink()
@@ -768,14 +902,14 @@ ALIGN_MAX_BYTES = 5 * 1024 * 1024
 
 
 def _book_audiobook(book: dict) -> tuple[str | None, list[str] | None]:
-    """`(ab_id, mp3 files)` of the book's linked audiobook when it is on this
-    machine, else `(None, None)`; `files` is None for a single m4b."""
+    """`(ab_id, track files)` of the book's linked audiobook when it is on this
+    machine, else `(None, None)`; `files` is None for a single-file book."""
     link = book.get("audiobook") or {}
     ab_id = link.get("audible_isbn")
     entry = _load_audiobooks().get(ab_id) if ab_id and link.get("audiobook_local") else None
     if not entry or not entry.get("local"):
         return None, None
-    return ab_id, (entry.get("files") or None) if entry.get("format") == "mp3-folder" else None
+    return ab_id, entry.get("files") or None
 
 
 def _book_alignment_state(book: dict) -> dict:
@@ -1184,26 +1318,46 @@ async def audiobooks_unhide(payload: schemas.AbIdsRequest) -> JSONResponse:
 
 
 # NOTE: declared before /download/{book_id} so the literal segment wins.
+# A track's type, for players that go by it (a whole file is octet-stream, below).
+_AUDIO_TYPES = {".mp3": "audio/mpeg", ".m4a": "audio/mp4", ".m4b": "audio/mp4",
+                ".flac": "audio/flac", ".opus": "audio/ogg", ".ogg": "audio/ogg"}
+
+
+def _moved_audiobook(ab_id: str, request: Request, prefix: str) -> RedirectResponse | None:
+    """A redirect to where an old ab_id went (audiobook_rekey), for links and
+    phone downloads made before it gained a key."""
+    new = load_json(cfg.audiobook_aliases, {}).get(ab_id)
+    if not new or new not in _load_audiobooks():
+        return None
+    query = f"?{request.url.query}" if request.url.query else ""
+    return RedirectResponse(f"{prefix}{urllib.parse.quote(new)}{query}", status_code=307)
+
+
 @app.get("/download/audiobook/{ab_id}")
-def download_audiobook(ab_id: str, part: str | None = None):
+def download_audiobook(ab_id: str, request: Request, part: str | None = None):
     index = _load_audiobooks()
     entry = index.get(ab_id)
+    if not entry:
+        moved = _moved_audiobook(ab_id, request, "/download/audiobook/")
+        if moved:
+            return moved
     if not entry or not entry.get("local"):
         raise HTTPException(status_code=404, detail="Audiobook not found")
     path = _safe_audiobook_path(entry)
-    if entry["format"] == "mp3-folder":
-        files = entry.get("files") or []
+    if entry.get("files"):
+        files = entry["files"]
         if part is None:
             return JSONResponse({"ab_id": ab_id, "files": files})
         if part not in files:  # whitelist: no traversal possible
             raise HTTPException(status_code=404, detail="No such track")
         path = path / part
-        media_type, filename = "audio/mpeg", part
+        media_type = _AUDIO_TYPES.get(Path(part).suffix.lower(), "application/octet-stream")
+        filename = part
     else:
         # Use octet-stream, not audio/mp4: Safari/iOS derives the saved
         # extension from the MIME type (audio/mp4 -> .mp4) and appends it,
         # producing "Title.m4b.mp4". octet-stream has no preferred extension,
-        # so Safari honors the Content-Disposition filename (.m4b) verbatim.
+        # so Safari honors the Content-Disposition filename (.m4b, .flac…) verbatim.
         media_type, filename = "application/octet-stream", path.name
     if not path.exists():
         raise HTTPException(status_code=404, detail="File missing (volume unplugged?)")
@@ -1694,6 +1848,144 @@ async def reset_book_cover(book_id: str) -> JSONResponse:
         return {"status": "ok", "job": None, **_book_details_state(book_id)}
 
     return JSONResponse(await asyncio.to_thread(_run))
+
+
+# ── Audiobook details ────────────────────────────────────────────────────────
+# The same idea as /api/books/{id}/details for an audiobook's catalog row: one
+# Save sends every changed field, kept in audiobook_metadata_overrides.json over
+# whatever the catalog, the tags or the file name said (audiobook_details.py).
+# One request = one rebuild of the audiobook index, the links and the library.
+
+def _require_audiobook(ab_id: str) -> dict:
+    st = audiobook_details_mod.state(cfg, ab_id)
+    if st is None:
+        raise HTTPException(status_code=404, detail="Unknown audiobook")
+    return st
+
+
+@app.get("/api/audiobooks/{ab_id}/details", response_model=schemas.AudiobookDetailsState)
+def get_audiobook_details(ab_id: str) -> dict:
+    return _require_audiobook(ab_id)
+
+
+@app.post("/api/audiobooks/{ab_id}/details", response_model=schemas.AudiobookDetailsResponse)
+async def set_audiobook_details(ab_id: str, payload: schemas.AudiobookDetailsRequest) -> JSONResponse:
+    _require_audiobook(ab_id)
+    sent = {f: getattr(payload, f) for f in payload.model_fields_set}
+
+    def _run() -> dict:
+        with _index_lock:
+            if audiobook_details_mod.apply(cfg, ab_id, sent, _genres()):
+                audiobook_details_mod.rebuild(cfg)
+            return {"status": "ok", **_require_audiobook(ab_id)}
+
+    try:
+        return JSONResponse(await asyncio.to_thread(_run))
+    except audiobook_details_mod.InvalidDetails as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@app.post("/api/audiobooks/{ab_id}/cover", response_model=schemas.AudiobookDetailsResponse)
+async def set_audiobook_cover(ab_id: str, file: UploadFile = File(...)) -> JSONResponse:
+    """Replace the audiobook's cover with an uploaded image (any row, local or not)."""
+    _require_audiobook(ab_id)
+    raw = await file.read(custom_cover_mod.MAX_BYTES + 1)
+
+    def _run() -> dict:
+        with _index_lock:
+            audiobook_details_mod.store_cover(cfg, ab_id, raw)
+            audiobook_details_mod.rebuild(cfg)
+            return {"status": "ok", **_require_audiobook(ab_id)}
+
+    try:
+        return JSONResponse(await asyncio.to_thread(_run))
+    except custom_cover_mod.InvalidCover as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@app.delete("/api/audiobooks/{ab_id}/cover", response_model=schemas.AudiobookDetailsResponse)
+async def reset_audiobook_cover(ab_id: str) -> JSONResponse:
+    """Back to the catalog's cover, or the file's own."""
+    _require_audiobook(ab_id)
+
+    def _run() -> dict:
+        with _index_lock:
+            if audiobook_details_mod.clear_cover(cfg, ab_id):
+                audiobook_details_mod.rebuild(cfg)
+            return {"status": "ok", **_require_audiobook(ab_id)}
+
+    return JSONResponse(await asyncio.to_thread(_run))
+
+
+# ── Audible search and Match ─────────────────────────────────────────────────
+# A local file the scanner can't identify is matched to an Audible book by hand
+# (audiobook_match.py): search Audible, pick the book, and the file becomes it —
+# progress, alignments and edits follow. Audible is asked outside _index_lock.
+
+def _audible_failure(exc: Exception) -> HTTPException:
+    """ValueError is a bad request; an AudibleError is Audible's (or the network's)."""
+    return HTTPException(status_code=400 if isinstance(exc, ValueError) else 502, detail=str(exc))
+
+
+def _match_failure(exc: audiobook_match_mod.MatchError) -> JSONResponse:
+    return JSONResponse({"reason": exc.reason, "detail": str(exc)}, status_code=exc.status)
+
+
+@app.get("/api/audible/search", response_model=schemas.AudibleSearchResponse)
+async def audible_search(title: str = "", author: str = "", keywords: str = "") -> dict:
+    """Audible books matching a title, author and/or keywords, in the store set by
+    `audible.marketplace`. 400 for an empty search, 502 when Audible can't answer."""
+    try:
+        results = await asyncio.to_thread(audiobook_match_mod.candidates, cfg, title, author, keywords)
+    except (ValueError, audible_mod.AudibleError) as exc:
+        raise _audible_failure(exc)
+    mp = audible_mod.market(cfg.audible_marketplace)
+    return {"marketplace": {"code": cfg.audible_marketplace, "label": mp.label}, "results": results}
+
+
+@app.get("/api/audiobooks/{ab_id}/match", response_model=schemas.AudiobookMatchState)
+def get_audiobook_match(ab_id: str) -> dict:
+    st = audiobook_match_mod.state(cfg, ab_id)
+    if st is None:
+        raise HTTPException(status_code=404, detail="Unknown audiobook")
+    return st
+
+
+@app.post("/api/audiobooks/{ab_id}/match", response_model=schemas.AudiobookMatchResponse)
+async def set_audiobook_match(ab_id: str, payload: schemas.AudiobookMatchRequest):
+    """Make this local file the Audible book `asin` (a pasted link works too). 409
+    `{reason}`: `key_in_name`, `same`, `taken`, `not_a_book`, `not_local`; 404
+    `not_found` when Audible has no such ASIN; 502 when Audible can't answer."""
+    asin = audible_mod.parse_asin(payload.asin)
+    if not asin:
+        raise HTTPException(status_code=400, detail="That isn't an Audible ASIN or link.")
+
+    def _run() -> dict:
+        row = audiobook_match_mod.prepare(cfg, ab_id, asin)  # the network call, no lock
+        with _index_lock:
+            result = audiobook_match_mod.match(cfg, ab_id, asin, row, rename=payload.rename)
+            return {"status": "ok", **result, **_require_audiobook(result["ab_id"])}
+
+    try:
+        return JSONResponse(await asyncio.to_thread(_run))
+    except audiobook_match_mod.MatchError as exc:
+        return _match_failure(exc)
+    except (ValueError, audible_mod.AudibleError) as exc:
+        raise _audible_failure(exc)
+
+
+@app.delete("/api/audiobooks/{ab_id}/match", response_model=schemas.AudiobookMatchResponse)
+async def reset_audiobook_match(ab_id: str):
+    """Take back a hand match. 409 `not_matched` when the file wasn't matched by hand."""
+    def _run() -> dict:
+        with _index_lock:
+            result = audiobook_match_mod.unmatch(cfg, ab_id)
+            return {"status": "ok", **result, **_require_audiobook(result["ab_id"])}
+
+    try:
+        return JSONResponse(await asyncio.to_thread(_run))
+    except audiobook_match_mod.MatchError as exc:
+        return _match_failure(exc)
 
 
 # ── EPUB ↔ audiobook link correction ─────────────────────────────────────────
@@ -2326,20 +2618,181 @@ def admin_status() -> JSONResponse:
         return JSONResponse({**_admin_run, "now": time.time()})
 
 
-@app.post("/api/admin/run/{stage}", response_model=schemas.AdminRunResponse)
-def admin_run(stage: str) -> JSONResponse:
-    if stage not in ADMIN_STAGES:
-        raise HTTPException(status_code=404, detail=f"Unknown stage: {stage}")
+def _start_stage(stage: str) -> bool:
+    """Start a stage in the admin worker; False when one is already running."""
     with _status_lock:
         if _admin_run["running"]:
-            raise HTTPException(
-                status_code=409,
-                detail=f"'{_admin_run['stage']}' is already running",
-            )
+            return False
         _admin_run.update(
             running=True, stage=stage, label=ADMIN_STAGES[stage][0],
             started_at=time.time(), finished_at=None, ok=None, error=None,
             output=None, log_file=None, tail=None,
         )
     threading.Thread(target=_admin_worker, args=(stage,), daemon=True).start()
+    return True
+
+
+@app.post("/api/admin/run/{stage}", response_model=schemas.AdminRunResponse)
+def admin_run(stage: str) -> JSONResponse:
+    if stage not in ADMIN_STAGES:
+        raise HTTPException(status_code=404, detail=f"Unknown stage: {stage}")
+    if not _start_stage(stage):
+        raise HTTPException(status_code=409, detail=f"'{_admin_run['stage']}' is already running")
     return JSONResponse({"status": "started", "stage": stage})
+
+
+# ── settings (settings.py; the /settings page) ────────────────────────────────
+
+# How long a settings save waits for a running stage before answering 409.
+SETTINGS_LOCK_WAIT = 2.0
+
+
+def _supervised() -> bool:
+    """Something restarts the server when it exits (Docker, systemd, the desktop app)."""
+    flag = os.environ.get("HONDANA_SUPERVISED", "").strip().lower()
+    return flag in ("1", "true", "yes") or bool(os.environ.get("INVOCATION_ID"))
+
+
+def _version() -> str:
+    try:
+        from importlib.metadata import version
+        return version("hondana")
+    except Exception:
+        return "unknown"
+
+
+def _settings_doc() -> dict:
+    """Every GUI setting: its saved value (what a restart would run with), where it
+    came from, whether the GUI may change it, and whether it waits for a restart."""
+    fresh = settings_mod.load(cfg.config_path)
+    fields, pending = [], []
+    for key in settings_mod.KEYS:
+        if not key.gui:
+            continue
+        value = getattr(fresh, key.field)
+        locked = settings_mod.env_locked(key)
+        waiting = key.restart and value != getattr(cfg, key.field)
+        if waiting:
+            pending.append(key.label)
+        secret = key.kind == "secret"
+        fields.append({
+            "key": key.name, "label": key.label, "group": key.group, "kind": key.kind,
+            "help": key.help, "value": "" if secret else settings_mod.to_json(key, value),
+            "choices": [list(c) for c in key.choices] if key.choices else None,
+            "is_set": bool(value) if secret else None,
+            "source": fresh.sources.get(key.field, "default"), "env": locked or key.env,
+            "env_locked": bool(locked), "file_only": key.file_only,
+            "editable": not key.file_only and not locked,
+            "restart": key.restart, "restart_pending": waiting,
+        })
+    return {
+        "fields": fields, "restart_pending": pending, "supervised": _supervised(),
+        "config_path": str(cfg.config_path) if cfg.config_path else None,
+        "home": str(cfg.home) if cfg.home else None, "data_dir": str(cfg.data_dir),
+        "version": _version(),
+    }
+
+
+@app.get("/api/settings")
+def settings_get() -> JSONResponse:
+    return JSONResponse(_settings_doc(), headers={"Cache-Control": "no-cache"})
+
+
+@app.put("/api/settings")
+def settings_put(payload: schemas.SettingsUpdate) -> JSONResponse:
+    """Save settings from the GUI (null = back to the file's value or the default).
+    What can apply at once is applied to the running server; a changed library
+    folder starts a scan; the rest says it waits for a restart."""
+    overlay = dict(settings_mod.read_overlay(cfg.data_dir))
+    errors: dict[str, str] = {}
+    for name, value in payload.values.items():
+        key = settings_mod.BY_NAME.get(name)
+        if key is None or not key.gui:
+            errors[name] = "Unknown setting"
+        elif key.file_only:
+            errors[name] = "Can only be set in the config file"
+        elif settings_mod.env_locked(key):
+            errors[name] = f"Set by the {settings_mod.env_locked(key)} environment variable"
+        elif value is None:
+            overlay.pop(name, None)
+        else:
+            try:
+                typed = settings_mod.coerce(key, value, cfg.home or cfg.data_dir)
+            except settings_mod.SettingError as exc:
+                errors[name] = str(exc)
+                continue
+            problem = settings_mod.validate(key, typed)
+            if problem:
+                errors[name] = problem
+            else:
+                overlay[name] = settings_mod.to_json(key, typed)
+    if errors:
+        first = next(iter(errors.items()))
+        return JSONResponse({"detail": f"{first[0]}: {first[1]}", "errors": errors}, status_code=400)
+
+    if not _index_lock.acquire(timeout=SETTINGS_LOCK_WAIT):
+        raise HTTPException(status_code=409, detail="A pipeline stage is running; save again when it finishes.")
+    try:
+        settings_mod.save_overlay(cfg.data_dir, overlay)
+        fresh = settings_mod.load(cfg.config_path)
+        applied = []
+        for key in settings_mod.KEYS:
+            if key.restart or key.name == "data_dir":
+                continue
+            new = getattr(fresh, key.field)
+            if new != getattr(cfg, key.field):
+                setattr(cfg, key.field, new)
+                applied.append(key.name)
+        cfg.sources = fresh.sources
+    finally:
+        _index_lock.release()
+
+    if "audible.marketplace" in applied:
+        threading.Thread(target=_refresh_audible_links, daemon=True).start()
+    started = None
+    if "epub_dir" in applied:
+        started = "scan" if _start_stage("scan") else None
+    elif "audiobook_dirs" in applied:
+        started = "audio-scan" if _start_stage("audio-scan") else None
+    doc = _settings_doc()
+    return JSONResponse({**doc, "applied": applied, "started": started})
+
+
+def _refresh_audible_links() -> None:
+    """The Audible store changed: the audiobook index and the links carry the
+    address of each book's page on its site."""
+    with _index_lock:
+        audiobook_details_mod.rebuild(cfg)
+
+
+@app.post("/api/settings/check-path")
+def settings_check_path(payload: schemas.CheckPathRequest) -> dict:
+    """What is at a folder someone is about to save: there, writable, and how many
+    books and audio files it holds (counting stops at 10,000 entries)."""
+    p = Path(payload.path).expanduser()
+    if not p.is_absolute():
+        return {"path": str(p), "exists": False, "is_dir": False, "writable": False,
+                "epubs": 0, "audio": 0, "problem": "Use a full path, starting with /"
+                if os.name != "nt" else "Use a full path, such as D:\\Books"}
+    exists, is_dir = p.exists(), p.is_dir()
+    epubs = audio = 0
+    if is_dir:
+        for i, f in enumerate(p.rglob("*")):
+            if i >= 10_000:
+                break
+            suffix = f.suffix.lower()
+            epubs += suffix == ".epub"
+            audio += suffix in (".m4b", ".mp3", ".m4a")
+    return {"path": str(p), "exists": exists, "is_dir": is_dir,
+            "writable": is_dir and os.access(p, os.W_OK), "epubs": epubs, "audio": audio,
+            "problem": None if is_dir else ("Not a folder" if exists else "No folder there")}
+
+
+@app.post("/api/admin/restart", response_model=schemas.StatusResponse)
+def admin_restart() -> dict:
+    """Exit so the supervisor (Docker, systemd, the desktop app) starts the server again
+    with the saved settings. Refused when nothing would restart it."""
+    if not _supervised():
+        raise HTTPException(status_code=409, detail="Nothing would start Hondana again: restart it yourself.")
+    threading.Timer(0.5, os._exit, args=(75,)).start()
+    return {"status": "restarting"}

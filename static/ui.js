@@ -36,6 +36,9 @@
 //   analysedBooks(books, lang) / oneBookPerSeries(list)   what Read Next ranks, and its one-book-per-series collapse (/next, /profile)
 //   vocabOf, diffOf, wordsOf, knownPct, hardPct, flowPct, wordsTo98, isRead   book accessors
 //   postJson(url, body, method?)   POST (or `method`) JSON → parsed JSON; throws Error(server `detail`) on a non-2xx
+//   ensureAdmin()          → Promise<boolean>: true when this browser may make admin changes, after asking for
+//                          the password if one is set (XHR uploads call it first; every fetch() asks by itself
+//                          on a 401 `admin_required`, then replays the request)
 //   copyText(text)         copy to the clipboard → Promise<boolean>; also works on the plain-http LAN address,
 //                          where navigator.clipboard doesn't exist
 //   failReason(e)          a failed request in words ("the server hit an error"), for "Couldn't save: …"
@@ -342,6 +345,53 @@ function statusHtml(type, html, glyph) {
     : `<div class="status-${type}">${html}</div>`;
 }
 
+// ── Admin password ────────────────────────────────────────────────────────────
+// Once an admin password is set (Settings), a change that needs it answers 401
+// `admin_required`. Every fetch() on every page goes through this wrapper: it asks for
+// the password once (one dialog however many requests failed together), signs in, and
+// replays the request. XHR uploads can't be wrapped, so they call ensureAdmin() first.
+let _signingIn = null;
+
+function signInAdmin() {
+  _signingIn = _signingIn || (async () => {
+    const got = await promptDialog({
+      title: "Admin password",
+      message: "Changing the library needs the admin password.",
+      fields: [{ name: "password", label: "Password", type: "password", required: true }],
+      confirmLabel: "Sign in",
+    });
+    if (!got) return false;
+    const r = await _realFetch("/api/auth/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ password: got.password }),
+    });
+    if (r.ok) return true;
+    const data = await r.json().catch(() => ({}));
+    toast(data.detail || "Wrong password", "error");
+    return false;
+  })().finally(() => { _signingIn = null; });
+  return _signingIn;
+}
+
+async function ensureAdmin() {
+  try {
+    const st = await (await _realFetch("/api/auth/state")).json();
+    return st.admin || signInAdmin();
+  } catch {
+    return true;  // let the request itself report the problem
+  }
+}
+
+const _realFetch = window.fetch.bind(window);
+window.fetch = async function (input, init) {
+  const resp = await _realFetch(input, init);
+  if (resp.status !== 401) return resp;
+  const data = await resp.clone().json().catch(() => null);
+  if (!data || data.detail !== "admin_required" || !(await signInAdmin())) return resp;
+  return _realFetch(input, init);
+};
+
 async function postJson(url, body, method = "POST") {
   const resp = await fetch(url, {
     method,
@@ -431,9 +481,11 @@ function dlEpub(bookId, opts = {}) {
 // is "audiobook.jp 237969" / "kikubon 389") instead of claiming there is no audiobook.
 function dlAudio(a, opts = {}) {
   const named = (what) => (opts.label ? ` aria-label="${esc(`${what}: ${opts.label}`)}"` : "");
+  // The button names the file type: M4B unless the row says it is another single file.
+  const kind = a && a.format && !["mp3-folder", "tracks"].includes(a.format) ? a.format.toUpperCase() : "M4B";
   if (a && a.local)
     return `<a class="${_dlClass("audio", opts)}" href="/download/audiobook/${encodeURIComponent(a.id)}" ` +
-      `title="${esc(a.path || "Download audiobook")}"${named("Download audiobook")}>${icon("headphones")}M4B</a>`;
+      `title="${esc(a.path || "Download audiobook")}"${named("Download audiobook")}>${icon("headphones")}${kind}</a>`;
   if (a && a.audibleUrl)
     return `<a class="${_dlClass("audible", opts)}" href="${esc(a.audibleUrl)}" target="_blank" rel="noopener" ` +
       `title="Open on Audible"${named("Open on Audible")}>${icon("headphones")}Audible${icon("open_in_new")}</a>`;
@@ -454,7 +506,7 @@ function dlAudio(a, opts = {}) {
   return `<span class="${_dlClass("none", opts)}">${opts.size === "xs" ? "—" : "No audiobook"}</span>`;
 }
 
-// One MP3 track of a folder audiobook (the /audiobook-series `.tracks` list):
+// One track of a folder audiobook (the /audiobook-series `.tracks` list):
 // `file` is a name from the entry's `files`.
 function dlTrack(abId, file) {
   return `<a href="/download/audiobook/${encodeURIComponent(abId)}?part=${encodeURIComponent(file)}">${esc(file)}</a>`;

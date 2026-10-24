@@ -40,6 +40,7 @@ from . import align_jobs, discovery
 CACHE_ROOT = Path("~/.cache/hondana/align").expanduser()
 # This machine's own settings, so `align-remote` needs no --config:
 #   server = "http://my-server.local"
+#   token = "hnd_..."          # only if the server has an admin password (Settings › Script tokens)
 #   [alignment]
 #   subplz_cmd = "subplz sync --audio {audio} --text {text} --output-dir {out} ..."
 USER_CONFIG = Path("~/.config/hondana/align.toml").expanduser()
@@ -61,7 +62,8 @@ def user_settings(path: Path | None = None) -> dict[str, str]:
         raw = tomllib.loads(path.read_text(encoding="utf-8"))
     except (tomllib.TOMLDecodeError, UnicodeDecodeError) as exc:
         raise RemoteError(f"{path} isn't valid TOML: {exc}") from exc
-    found = {"server": raw.get("server"), "subplz_cmd": raw.get("alignment", {}).get("subplz_cmd")}
+    found = {"server": raw.get("server"), "token": raw.get("token"),
+             "subplz_cmd": raw.get("alignment", {}).get("subplz_cmd")}
     return {k: str(v).strip() for k, v in found.items() if v and str(v).strip()}
 
 
@@ -141,9 +143,11 @@ def _why(resp: requests.Response) -> str:
 
 
 class Server:
-    def __init__(self, base: str, session: requests.Session | None = None) -> None:
+    def __init__(self, base: str, session: requests.Session | None = None, token: str = "") -> None:
         self.base = base.rstrip("/")
         self.http = session or requests.Session()
+        if token:  # a server with an admin password wants it for the upload
+            self.http.headers["Authorization"] = f"Bearer {token}"
 
     @property
     def host(self) -> str:
@@ -306,8 +310,8 @@ def make_plan(server: Server, book: dict, entries: dict[str, dict] | None = None
     entry = entries.get(ab_id) if entries is not None else server.audiobook(ab_id)
     if not entry or not entry.get("local"):
         raise RemoteError(f"no_audiobook: {ab_id} is not on the server")
-    mp3 = entry.get("format") == "mp3-folder"
-    names = list(entry.get("files") or []) if mp3 else [Path(entry["path"]).name]
+    mp3 = bool(entry.get("files"))  # a folder of tracks (mp3 or otherwise)
+    names = list(entry["files"]) if mp3 else [Path(entry["path"]).name]
     if not names:
         raise RemoteError(f"no_audiobook: {ab_id} has no audio files")
     plan = Plan(book, ab_id, names, names if mp3 else None, entry.get("runtime_min"), entry.get("filesize"))

@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <!-- include: head title="Settings — Hondana" -->
+  <link rel="stylesheet" href="/static/settings.css">
+</head>
+<body class="layout">
+  <!-- include: shell active=settings -->
+    <header>
+      <div class="header-row">
+        <!-- include: header title="Settings" -->
+      </div>
+    </header>
+
+    <!-- Built by settings.js from GET /api/settings: one card per group of settings,
+         then the admin password and script tokens, then where things live. -->
+    <main class="add-wrap" id="settings-main">
+      <div id="restart-banner" role="status" hidden></div>
+      <div id="settings-cards"><p class="hint">Loading settings…</p></div>
+
+      <section class="add-card set-card" id="security" aria-labelledby="security-h">
+        <h2 id="security-h">Admin password</h2>
+        <div id="security-body"><p class="hint">Loading…</p></div>
+      </section>
+
+      <section class="add-card set-card" id="tokens" aria-labelledby="tokens-h">
+        <h2 id="tokens-h">Script tokens</h2>
+        <p class="hint">For scripts that change things once a password is set, such as
+          <code>cli.py align-remote --token</code>. A token is shown once, when you make it.</p>
+        <div id="tokens-body"></div>
+      </section>
+
+      <section class="add-card set-card" id="about" aria-labelledby="about-h">
+        <h2 id="about-h">Where things are</h2>
+        <div id="about-body"></div>
+      </section>
+    </main>
+  </div>
+  <script src="/static/nav.js"></script>
+  <script src="/static/settings.js"></script>
+</body>
+</html>

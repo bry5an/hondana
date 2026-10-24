@@ -39,6 +39,11 @@ port = 8000
 # in the environment / .env).
 # google_books_api_key = ""
 
+[audible]
+# The Audible store your audiobooks are bought from: jp, us, uk, de, fr, ca, au,
+# in, it or es. Book details are looked up (by ASIN) and searched there.
+# marketplace = "jp"
+
 [natively]
 # Seconds between learnnatively.com requests (be polite).
 delay = 0.4

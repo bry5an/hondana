@@ -11,7 +11,16 @@
 .chip.have-some { color: var(--accent); border-color: var(--accent); }
 .chip.have-none { color: var(--ja); border-color: var(--ja); }
 
-/* A folder of MP3 tracks expands in place rather than opening a page. */
+/* Details only guessed from the file name: the caution pair (STYLE.md §8), on a
+   card's chip and in a volume row's sub-line, where "Add details" opens the form. */
+.chip.needs-details { background: #f6e3c9; color: #8b5c1b; }
+body.dark .chip.needs-details { background: #4a3a24; color: #e0b878; }
+.queue-sub .needs-details { color: #8b5c1b; font-weight: 700; }
+body.dark .queue-sub .needs-details { color: #e0b878; }
+.queue-sub .link-btn { font-size: inherit; color: var(--text); }
+@media (max-width: 639px) { .queue-sub .link-btn { padding-block: 8px; margin-block: -8px; } }
+
+/* A folder of tracks expands in place rather than opening a page. */
 .tracks { flex-shrink: 0; }
 .tracks summary {
   cursor: pointer;
@@ -36,4 +45,57 @@
    loads after app.css and would otherwise undo app.css's 2-up phone grid. */
 @media (max-width: 639px) {
   .grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+/* Find on Audible (audiobook_match.js): a search, its results, and a confirm bar in the
+   .bd-modal frame the details form uses (app.css). Names start "abm-", never "ad-". */
+.abm-body { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+.abm-search { display: flex; gap: 12px; flex-wrap: wrap; align-items: flex-end; }
+.abm-search .bd-fld { min-width: 140px; }
+.abm-go { min-height: 40px; }
+.abm-where { margin: -6px 0 0; font-size: 0.78rem; }
+.abm-where a { color: var(--accent-ink); }
+.abm-status { margin: 0; min-height: 1.2em; }
+.abm-results { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.abm-results:empty { display: none; }
+.abm-row { display: flex; align-items: stretch; gap: 6px; }
+.abm-item {
+  flex: 1; min-width: 0; display: flex; align-items: center; gap: 12px; text-align: left;
+  padding: 8px 12px 8px 8px; min-height: 44px;
+  background: var(--panel2); border: 2px solid var(--border); border-radius: 12px;
+  color: var(--text); font: inherit; cursor: pointer;
+}
+.abm-item:hover:not(:disabled) { border-color: var(--accent); }
+.abm-item[aria-pressed="true"] { border-color: var(--accent); background: var(--panel); }
+.abm-item:disabled { opacity: 0.6; cursor: default; }
+.abm-cover {
+  flex: none; width: 48px; aspect-ratio: 1 / 1; border-radius: 8px; overflow: hidden;
+  background: var(--panel); display: flex; align-items: center; justify-content: center; color: var(--muted);
+}
+.abm-cover img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.abm-text { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.abm-name { font-weight: 700; font-size: 0.88rem; overflow-wrap: anywhere; }
+.abm-meta { font-size: 0.75rem; color: var(--muted); overflow-wrap: anywhere; }
+.abm-note { font-size: 0.72rem; font-weight: 700; color: var(--accent-ink); }
+.abm-open {
+  flex: none; width: 44px; display: flex; align-items: center; justify-content: center;
+  color: var(--muted); border-radius: 12px; text-decoration: none;
+}
+.abm-open:hover { color: var(--text); }
+.abm-paste-row { display: flex; gap: 10px; }
+.abm-paste-row input { flex: 1; }
+.abm-hand { margin: 0; font-size: 0.82rem; color: var(--muted); }
+.abm-hand .link-btn { font-size: inherit; color: var(--accent-ink); }
+.abm-confirm { display: flex; flex-direction: column; gap: 10px; }
+.abm-chosen { font-size: 0.85rem; overflow-wrap: anywhere; }
+.abm-chosen code { font-size: 0.75rem; color: var(--muted); margin-left: 4px; }
+.abm-rename { display: flex; align-items: center; gap: 8px; font-size: 0.82rem; }
+.abm-rename input { accent-color: var(--accent); width: 18px; height: 18px; flex: none; }
+.abm-rename code { font-size: 0.78rem; }
+@media (max-width: 639px) {
+  .abm-search .bd-fld { flex-basis: 100%; }
+  .abm-go { width: 100%; min-height: 44px; }
+  .abm-paste-row input { font-size: 1rem; }
+  .abm-paste-row .btn { min-height: 44px; }
+  .abm-hand .link-btn { padding-block: 8px; margin-block: -8px; }
 }

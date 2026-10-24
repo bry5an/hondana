@@ -100,7 +100,8 @@ def _dest_for_unmatched(root: Path, path: Path) -> str:
 
 
 def build_plan(cfg: Config, use_fuzzy: bool = True) -> dict:
-    catalog: dict = audiobook_catalog.load(cfg)
+    # The catalog proper: a local file's own row would only name it after itself.
+    catalog: dict = audiobook_catalog.load(cfg, local=False)
     canonical = cfg.audiobook_root
     if not canonical.exists():
         raise SystemExit(f"Canonical root not mounted: {canonical}")

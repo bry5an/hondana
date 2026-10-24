@@ -7,7 +7,7 @@ as just the pulled rows). A title bought
 or ripped after that carries its ASIN in the file name (`… [B07QMQHLVH].m4b`) but
 had no metadata, so it showed with a filename-derived title and no cover, series
 order or genre, and xref could never link an EPUB to it. `fetch_missing()` looks
-those ASINs up in Audible's public catalog API (no login) and keeps the result in
+those ASINs up in Audible's public catalog API (no login, `audible.py`) and keeps the result in
 `data/audiobook_catalog_extra.json`, a generated per-machine file like every other
 index. Everything that used to read `cfg.audiobook_data` reads `load()`/`cached()`
 instead, which lay the extras over the base per field.
@@ -16,6 +16,14 @@ Rows pulled this way follow the base file's shape (`series` always populated,
 `order` a zero-padded volume number or None). `genre` is Audible's own category,
 mapped onto the existing vocabulary where one fits and kept as Audible names it
 otherwise.
+
+Two more layers sit on top, so a file no catalog knows (no ASIN, or one Audible
+doesn't have) is still a book everywhere — a link candidate, a picker result, a
+Natively target: `local_row()` gives every local file without a row one, keyed
+by its ab_id, from its embedded tags (`source: "tags"`) or else its file and
+folder names (`source: "filename"`, never auto-linked); and
+`audiobook_metadata_overrides.json` holds details typed by hand, per field,
+over any row.
 """
 from __future__ import annotations
 
@@ -25,17 +33,13 @@ import threading
 import time
 import unicodedata
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
-import requests
-
-from . import audiobook_scanner
+from . import audible, audiobook_scanner
 from .audiobook_scanner import AUDIBLE_KEY_RE
 from .config import Config
 from .index_store import load_json, save_json
 
-API_URL = "https://api.audible.co.jp/1.0/catalog/products/{asin}"
-RESPONSE_GROUPS = ("product_desc,product_attrs,series,contributors,media,rating,"
-                   "category_ladders,product_extended_attrs")
 RETRY_DAYS = 14        # an ASIN Audible didn't know is asked about again after this
 GIVE_UP_AFTER = 3      # consecutive request errors (not 404s) before the run stops
 SAVE_EVERY = 25
@@ -52,10 +56,93 @@ def _merge(base: dict, extra: dict) -> dict:
     return merged
 
 
-def load(cfg: Config) -> dict:
+# Tag genres that say "this is an audiobook", not what kind of book it is.
+_NOT_GENRES = {"audiobook", "audiobooks", "audio book", "audio books", "audiobook & ebook",
+               "spoken word", "speech", "book", "books", "other", "unknown", "オーディオブック"}
+_LOCAL_SOURCES = ("tags", "filename", "manual")
+# Fields a hand edit (audiobook_metadata_overrides.json) may set.
+EDITABLE = ("title", "author", "series", "order", "narrators", "genre", "description_full",
+            "release_date")
+
+
+def _vol(part: str | None) -> str | None:
+    """A tag's series part as the catalog's `order`: "3" → "03", "2.5" stays."""
+    part = unicodedata.normalize("NFKC", part or "").strip()
+    m = re.match(r"\d+(?:\.\d+)?", part)
+    if not m:
+        return None
+    whole, _, frac = m.group(0).partition(".")
+    return whole.zfill(2) + (f".{frac}" if frac else "")
+
+
+def local_row(ab_id: str, entry: dict) -> dict:
+    """A catalog row for a local file no catalog knows, from its tags, else its
+    file and folder names (the `[Author] Series/[NN] Title` layout). `source`
+    says which: an untagged file's row is a guess, so xref never links it."""
+    tags = entry.get("tags") or {}
+    name_title, name_order = audiobook_scanner._title_from_filename(entry["filename"])
+    folder_author = folder_series = None
+    m = audiobook_scanner.AUTHOR_DIR_RE.match(Path(entry["path"]).parent.name)
+    if m:
+        folder_author, folder_series = m.group("author"), m.group("series")
+    title = tags.get("title") or name_title
+    duration = tags.get("duration")
+    genre = tags.get("genre")
+    return {
+        "title": title,
+        "author": tags.get("author") or folder_author,
+        "series": tags.get("series") or folder_series or title,
+        "order": _vol(tags.get("part")) or name_order,
+        "narrators": tags.get("narrator"),
+        "description_full": tags.get("description"),
+        "runtime_length_min": str(max(1, round(duration / 60))) if duration else None,
+        "release_date": tags.get("year"),
+        "genre": genre if genre and genre.strip().lower() not in _NOT_GENRES else None,
+        "cover": audiobook_scanner.cover_url(ab_id, entry),
+        "source": "tags" if tags.get("title") else "filename",
+    }
+
+
+def _apply_overrides(rows: dict, overrides: dict) -> dict:
+    for key, fields in overrides.items():
+        if key not in rows or not isinstance(fields, dict):
+            continue
+        edits = {k: v for k, v in fields.items() if k in EDITABLE}
+        row = {**rows[key], **edits}
+        cover = fields.get("cover")  # a hand-set image (audiobook_details.store_cover)
+        if isinstance(cover, dict) and cover.get("ext"):
+            row["cover"] = f"/covers/audiobook/{key}?v={cover.get('v') or 0}"
+        if row.get("source") == "filename" and any(edits.get(k) for k in ("title", "author", "series")):
+            row["source"] = "manual"  # typed by hand: no longer a guess
+        rows[key] = row
+    return rows
+
+
+def load(cfg: Config, *, local: bool = True, edits: bool = True) -> dict:
     """The full catalog, keyed by ASIN / source id: base rows with the pulled
-    rows (and any per-field overlay) applied. A fresh dict — safe to mutate."""
-    return _merge(load_json(cfg.audiobook_data, {}), load_json(cfg.audiobook_catalog_extra, {}))
+    rows applied, then (with `local`) a row for every local file none of them
+    knows, keyed by its ab_id, then (with `edits`) the hand edits. A fresh dict
+    — safe to mutate. `local=False` is the catalog proper, for consolidate
+    (which names files after their row); `edits=False` is what a row says
+    before anyone corrected it."""
+    rows = _merge(load_json(cfg.audiobook_data, {}), load_json(cfg.audiobook_catalog_extra, {}))
+    if local:
+        for ab_id, entry in load_json(cfg.audiobook_files_index, {}).items():
+            if ab_id not in rows:
+                rows[ab_id] = local_row(ab_id, entry)
+    if not edits:
+        return rows
+    return _apply_overrides(rows, load_json(cfg.audiobook_metadata_overrides, {}))
+
+
+def is_local_row(row: dict) -> bool:
+    return row.get("source") in _LOCAL_SOURCES
+
+
+def sources(cfg: Config) -> tuple[Path, ...]:
+    """Every file `load()` reads, for caches keyed on their stamps."""
+    return (cfg.audiobook_data, cfg.audiobook_catalog_extra, cfg.audiobook_files_index,
+            cfg.audiobook_metadata_overrides)
 
 
 _cache: dict = {}
@@ -71,10 +158,11 @@ def _stamp(path) -> tuple | None:
 
 
 def cached(cfg: Config) -> dict:
-    """`load()` for request paths: re-merged only when either file changed.
+    """`load()` for request paths: re-merged only when one of its files changed.
     Read-only, like index_store.cached_json."""
-    version = (_stamp(cfg.audiobook_data), _stamp(cfg.audiobook_catalog_extra))
-    key = (str(cfg.audiobook_data), str(cfg.audiobook_catalog_extra))
+    paths = sources(cfg)
+    version = tuple(_stamp(p) for p in paths)
+    key = tuple(str(p) for p in paths)
     with _cache_lock:
         hit = _cache.get(key)
         if hit and hit[0] == version:
@@ -154,17 +242,6 @@ def entry_from_product(product: dict) -> dict:
 
 # ── fetching ─────────────────────────────────────────────────────────────────
 
-def fetch_product(asin: str) -> dict | None:
-    """The Audible product for `asin`, or None if it doesn't exist (404).
-    Any other failure raises, so a network outage isn't recorded as a miss."""
-    r = requests.get(API_URL.format(asin=asin), params={"response_groups": RESPONSE_GROUPS},
-                     timeout=15)
-    if r.status_code == 404:
-        return None
-    r.raise_for_status()
-    return r.json().get("product")
-
-
 def _wanted(cfg: Config, base: dict, extra: dict, now: datetime) -> list[str]:
     """ASINs on disk that the catalog doesn't know: not in the base file, not
     pulled already, and not an unavailable one asked about recently."""
@@ -202,7 +279,7 @@ def fetch_missing(cfg: Config, *, delay: float = 0.3) -> dict:
     added = errors = 0
     for i, asin in enumerate(todo, 1):
         try:
-            product = fetch_product(asin)
+            product = audible.fetch_product(asin, cfg.audible_marketplace)
         except Exception as exc:  # noqa: BLE001 — network/HTTP, report and keep going
             errors += 1
             print(f"  [{i}/{len(todo)}] ! {asin}: {exc}")

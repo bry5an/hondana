@@ -1951,7 +1951,7 @@ body.dark .on-hero .read-btn.on { color: var(--ok); border-color: var(--ok); }
   letter-spacing: 0.06em;
   color: var(--muted);
 }
-.bd-fld input[type="text"], .bd-fld select {
+.bd-fld input[type="text"], .bd-fld select, .bd-fld textarea {
   border: 2px solid var(--border);
   border-radius: 12px;
   padding: 10px 13px;
@@ -1973,9 +1973,10 @@ body.dark .on-hero .read-btn.on { color: var(--ok); border-color: var(--ok); }
   background-size: 5px 5px, 5px 5px;
   background-repeat: no-repeat;
 }
-.bd-fld input:focus, .bd-fld select:focus { border-color: var(--accent); }
+.bd-fld textarea { resize: vertical; min-height: 96px; line-height: 1.5; font-weight: 500; }
+.bd-fld input:focus, .bd-fld select:focus, .bd-fld textarea:focus { border-color: var(--accent); }
 /* 16px on a phone, or iOS zooms the page when a field is focused (/book's Edit dialog, /add). */
-@media (max-width: 639px) { .bd-fld input[type="text"], .bd-fld select { font-size: 1rem; } }
+@media (max-width: 639px) { .bd-fld input[type="text"], .bd-fld select, .bd-fld textarea { font-size: 1rem; } }
 /* A reset staged but not yet saved. */
 .bd-staged { border-style: dashed !important; opacity: 0.75; }
 .bd-reset { letter-spacing: 0; text-transform: none; }
@@ -1989,3 +1990,16 @@ body.dark .on-hero .read-btn.on { color: var(--ok); border-color: var(--ok); }
 .bd-save { padding: 9px 18px; font-size: 0.85rem; }
 .bd-status { font-size: 0.78rem; color: var(--muted); }
 .bd-note { color: var(--muted); font-size: 0.85rem; }
+/* A hint above an audiobook's form: where its details came from (audiobook_details.js). */
+.bd-origin { font-size: 0.8rem; color: var(--muted); margin: 0 0 12px; overflow-wrap: anywhere; }
+.bd-origin code { font-size: 0.75rem; }
+
+/* The Edit details dialog (book.js, audiobook_details.js): a wider .modal-box that scrolls on small screens. */
+.modal-box.bd-modal { max-width: 560px; max-height: 88vh; gap: 0; padding: 0; overflow: hidden; }
+/* Header and the Save bar stay put; only the form (and the book page's extra cards) scroll between them. */
+.bd-modal-head { padding: 18px 24px 12px; border-bottom: 1px solid var(--border); }
+.bd-scroll { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 16px 24px; display: flex; flex-direction: column; gap: 14px; }
+.bd-modal-foot { padding: 12px 24px; border-top: 1px solid var(--border); background: var(--panel); }
+.bd-modal-foot:empty { display: none; }
+.bd-modal-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.bd-modal-head .modal-title { font-family: 'Baloo 2', 'Hanken Grotesk', sans-serif; font-size: 1.05rem; }

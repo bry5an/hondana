@@ -2,6 +2,7 @@
 reader, Audible products turned into catalog rows, only unknown ASINs fetched."""
 import pytest
 
+from epublib import audible
 from epublib import audiobook_catalog as catalog
 from epublib import audiobook_scanner
 from epublib.index_store import load_json, save_json
@@ -88,14 +89,14 @@ def _files(cfg, *keys):
 def _fake_api(monkeypatch, products):
     calls = []
 
-    def fake(asin):
+    def fake(asin, marketplace=None):
         calls.append(asin)
         out = products[asin]
         if isinstance(out, Exception):
             raise out
         return out
 
-    monkeypatch.setattr(catalog, "fetch_product", fake)
+    monkeypatch.setattr(audible, "fetch_product", fake)
     monkeypatch.setattr(audiobook_scanner, "build_index", lambda cfg: calls.append("index"))
     return calls
 
@@ -113,6 +114,17 @@ def test_fetch_missing_pulls_only_asins_on_disk_that_no_catalog_knows(cfg, monke
     calls.clear()
     catalog.fetch_missing(cfg, delay=0)                              # nothing new, an unavailable one is recent
     assert calls == []
+
+
+def test_the_configured_store_is_the_one_asked(cfg, monkeypatch):
+    save_json(cfg.audiobook_data, {})
+    _files(cfg, "B000000101")
+    cfg.audible_marketplace = "us"
+    asked = []
+    monkeypatch.setattr(audible, "fetch_product", lambda asin, marketplace=None: asked.append(marketplace) or product())
+    monkeypatch.setattr(audiobook_scanner, "build_index", lambda cfg: None)
+    catalog.fetch_missing(cfg, delay=0)
+    assert asked == ["us"]
 
 
 def test_an_unavailable_asin_is_asked_about_again_after_two_weeks(cfg, monkeypatch):

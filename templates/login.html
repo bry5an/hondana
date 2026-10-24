@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <!-- include: head title="Sign in — Hondana" -->
+  <link rel="stylesheet" href="/static/settings.css">
+</head>
+<body class="layout">
+  <!-- include: shell active=none -->
+    <header>
+      <div class="header-row">
+        <!-- include: header title="Sign in" -->
+      </div>
+    </header>
+
+    <main class="add-wrap">
+      <section class="add-card set-card login-card" aria-labelledby="login-h">
+        <h2 id="login-h">Admin password</h2>
+        <p class="hint">This page changes the library or the server, so it needs the admin password.
+          Browsing and reading don't.</p>
+        <form id="login-form" class="set-form">
+          <div class="set-fld">
+            <label for="login-password">Password</label>
+            <input id="login-password" name="password" type="password" autocomplete="current-password" required>
+          </div>
+          <div class="set-actions">
+            <button type="submit" class="submit-btn" id="login-submit">Sign in</button>
+            <a class="link-btn" href="/">Back to the library</a>
+          </div>
+          <p class="set-status" id="login-status" role="status"></p>
+        </form>
+        <p class="hint">Forgot it? On the server, run <code>hondana admin-password clear</code>.</p>
+      </section>
+    </main>
+  </div>
+  <script src="/static/nav.js"></script>
+  <script src="/static/login.js"></script>
+</body>
+</html>

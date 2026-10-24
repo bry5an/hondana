@@ -5,7 +5,8 @@ Three modules each keep their own list of the curated files: data_mirror
 (backup), purge (explicit delete) and rekey (rename/move). A new override file
 has to be added to all three, and a missed entry once — four
 overrides went unmirrored. The guard test below fails the moment a new
-`*_overrides` path on Config is missing from any of them.
+`*_overrides` path on Config is missing from any of them. Audiobook-keyed
+stores follow an ab_id instead (audiobook_rekey), and are checked against that.
 """
 import shutil
 import subprocess
@@ -13,7 +14,7 @@ import subprocess
 import pytest
 
 from conftest import make_cfg
-from epublib import config, data_mirror, purge, rekey
+from epublib import audiobook_rekey, config, data_mirror, purge, rekey
 from epublib.config import Config
 
 pytestmark = pytest.mark.skipif(shutil.which("git") is None, reason="git not installed")
@@ -37,10 +38,22 @@ def test_every_override_file_is_in_every_curated_list(cfg):
 
     # pairing_overrides is keyed by the pair's stable key, not a book_id, so a
     # delete or rename leaves it alone by design (purge.py / rekey.py docstrings).
-    per_book = [a for a in attrs if a != "pairing_overrides"]
+    per_book = [a for a in attrs if a != "pairing_overrides" and a not in audiobook_rekey.AB_INDEXES]
     for attr in per_book:
         assert attr in purge._CURATED_INDEXES, f"{attr} survives a delete (purge._CURATED_INDEXES)"
         assert attr in rekey._INDEXES, f"{attr} is lost on a rename (rekey._INDEXES)"
+
+
+def test_every_audiobook_store_follows_a_new_ab_id(cfg):
+    """What an audiobook's id keys, by hand or by the phone, moves when the id
+    changes (audiobook_rekey) and is backed up."""
+    ab_keyed = ["audiobook_metadata_overrides", "audiobook_natively"]
+    assert sorted(audiobook_rekey.AB_INDEXES) == sorted(ab_keyed)
+    mirrored = set(data_mirror.ROOT_FILES)
+    for attr in ("audiobook_metadata_overrides", "audiobook_assignments", "audiobook_aliases",
+                 "audiobook_hidden", "audiobook_link_overrides"):
+        assert getattr(cfg, attr).name in mirrored, f"{attr} isn't backed up"
+    assert cfg.audiobook_natively.name in mirrored
 
 
 # ── data_mirror.push() into a throwaway remote ───────────────────────────────
@@ -76,6 +89,10 @@ def _seed_curated(cfg):
     cfg.custom_covers_dir.mkdir(parents=True)
     (cfg.custom_covers_dir / "b1.png").write_bytes(b"\x89PNG fake")
     (cfg.covers_dir / "b1.jpg").write_bytes(b"extracted, rebuildable")
+    (cfg.audiobook_custom_covers_dir / "thumbs").mkdir(parents=True)
+    (cfg.audiobook_custom_covers_dir / "B0AAAAAAAA.png").write_bytes(b"\x89PNG hand-set")
+    (cfg.audiobook_custom_covers_dir / "thumbs" / "B0AAAAAAAA.webp").write_bytes(b"derived")
+    (cfg.audiobook_covers_dir / "f0123456789abcd.jpg").write_bytes(b"from tags, rebuildable")
     cfg.alignments_dir.mkdir()
     (cfg.alignments_dir / "b1.srt").write_text("1\n00:00:00,000 --> 00:00:01,000\nx\n")
     (cfg.alignments_dir / "b1.json").write_text("{}")  # derived map
@@ -102,6 +119,7 @@ def test_push_mirrors_the_curated_files_and_nothing_derived(tmp_path, mirror):
         "README",
         *data_mirror.ROOT_FILES,
         "covers/custom/b1.png",
+        "covers/audiobooks/custom/B0AAAAAAAA.png",
         "alignments/b1.srt",
         "users/reader2/known_words.json",
         "users/reader2/read_books.json",

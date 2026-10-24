@@ -580,8 +580,9 @@ function pairRow(jp, en) {
 function emptyHtml() {
   if (!BOOKS.length) {
     return `<div class="lib-empty"><strong>Your library is empty.</strong> Add EPUBs on
-      <a href="/add">Add Book</a>, or copy them into your library folder (<code>epub_dir</code>
-      in the server's config) and run <strong>Scan EPUBs</strong> on <a href="/admin">Admin</a>.</div>`;
+      <a href="/add">Add Book</a>, or point Hondana at the folder you keep them in
+      (<a href="/settings#library">Settings</a>) and run <strong>Scan EPUBs</strong> on
+      <a href="/admin">Admin</a>.</div>`;
   }
   return `<div class="lib-empty">No books match these filters. Clear the search or turn a filter off.</div>`;
 }

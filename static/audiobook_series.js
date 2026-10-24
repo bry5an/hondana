@@ -75,15 +75,60 @@ function confirmVolume(kind, title) {
   return confirmDialog({ ...DIALOG_COPY[kind], message: `"${title}"`, danger: true });
 }
 
+// Edit details: the pencil in Edit mode, or "Add details" on a row whose details
+// were only guessed from its file name (that one shows outside Edit mode too).
+function openDetails(abId) {
+  AudiobookDetails.open(abId, { onClose: (changed, st) => { if (changed.length) afterEdit(st); } });
+}
+
+// Find on Audible: "Find on Audible" on a guessed row, or the ⋯ menu's Match item. A
+// match gives the file the Audible book's id, details and cover, so the volume may land
+// in another series (afterEdit follows it).
+function openMatch(abId) {
+  AudiobookMatch.open(abId, {
+    onHand: () => openDetails(abId),
+    onClose: (res) => {
+      if (!res) return;
+      if (res.rename_error) toast(`Matched, but the file wasn't renamed: ${res.rename_error}`);
+      afterEdit(res);
+    },
+  });
+}
+
+page.addEventListener("click", (e) => {
+  const edit = e.target.closest("[data-edit-ab]");
+  if (edit) { openDetails(edit.dataset.editAb); return; }
+  const match = e.target.closest("[data-match-ab]");
+  if (match) openMatch(match.dataset.matchAb);
+});
+
+// An edit can move the volume to another series (or author): say where it went,
+// and follow it when this page is left empty.
+async function afterEdit(st) {
+  const v = st.values;
+  const series = v.series || v.title || "", author = v.author || "";
+  const href = `/audiobook-series?name=${encodeURIComponent(series)}&author=${encodeURIComponent(author)}`;
+  if (series === SERIES_NAME && author === SERIES_AUTHOR) return load();
+  if (VOLS.length <= 1) { location.href = href; return; }
+  await load();
+  toast(`Moved to ${series}`, "ok", { action: { label: "Open", run: () => { location.href = href; } } });
+}
+
 page.addEventListener("click", async (e) => {
   if (!manage.on) return;
   const menu = e.target.closest(".row-menu-btn[data-ab-id]");
   if (!menu) return;
   const { abId, title } = menu.dataset;
-  const items = [{
+  const items = [];
+  // A file whose name carries its [ASIN] is already identified; any other can be matched.
+  if (menu.dataset.local && menu.dataset.keySource !== "name") items.push({
+    label: menu.dataset.keySource === "assigned" ? "Change Audible match…" : "Find on Audible…",
+    run: () => openMatch(abId),
+  });
+  items.push({
     label: "Remove from library…",
     run: async () => { if (await confirmVolume("hide", title)) hideAudiobook(abId); },
-  }];
+  });
   // Only a downloaded volume has a file to delete.
   if (menu.dataset.local) items.push({
     label: "Delete file…", danger: true,
@@ -102,11 +147,14 @@ function runtime(min) {
 }
 
 function volAction(v) {
-  if (v.local && v.format === "mp3-folder") {
-    const tracks = (v.files || []).map((f) => dlTrack(v.ab_id, f)).join("");
-    return `<details class="tracks"><summary>${icon("download")} ${(v.files || []).length} MP3s</summary>${tracks}</details>`;
+  // A folder of tracks (mp3s, or an album of m4a/flac/opus files): one link each.
+  if (v.local && v.files && v.files.length) {
+    const tracks = v.files.map((f) => dlTrack(v.ab_id, f)).join("");
+    const kind = v.format === "mp3-folder" ? "MP3s" : "tracks";
+    return `<details class="tracks"><summary>${icon("download")} ${v.files.length} ${kind}</summary>${tracks}</details>`;
   }
-  return dlAudio({ id: v.ab_id, local: v.local, audibleUrl: v.audible_url }, { size: "sm", placeholder: true });
+  return dlAudio({ id: v.ab_id, local: v.local, audibleUrl: v.audible_url, format: v.format },
+                 { size: "sm", placeholder: true });
 }
 
 // Companion-EPUB chip: links across to /book/{id}.
@@ -148,20 +196,33 @@ function volRow(v) {
   // pruning are usually the ones never downloaded — while "Delete file" only appears when
   // there is a downloaded file (data-local).
   const menuBtn = moreBtn(
-    `data-ab-id="${esc(v.ab_id)}" data-title="${title}"${v.local ? " data-local=\"1\"" : ""}`,
+    `data-ab-id="${esc(v.ab_id)}" data-title="${title}"${v.local ? " data-local=\"1\"" : ""}` +
+    `${v.key_source ? ` data-key-source="${esc(v.key_source)}"` : ""}`,
     `More actions for ${v.title || "(untitled)"}`);
+
+  const name = v.title || "(untitled)";
+  const editBtn = `<button type="button" data-edit-ab="${esc(v.ab_id)}" title="Edit details" ` +
+    `aria-label="${esc(`Edit details: ${name}`)}">${icon("edit")}</button>`;
+  // A guess from the file name is worth fixing now, not only in Edit mode.
+  const guessed = v.source === "filename"
+    ? `<span class="needs-details">Guessed from the file name</span>` +
+      `<button type="button" class="link-btn" data-match-ab="${esc(v.ab_id)}" ` +
+      `aria-label="${esc(`Find on Audible: ${name}`)}">Find on Audible</button>` +
+      `<button type="button" class="link-btn" data-edit-ab="${esc(v.ab_id)}" ` +
+      `aria-label="${esc(`Add details: ${name}`)}">Add details</button>`
+    : "";
 
   return `<div class="row queue-row${v.local ? "" : " missing"}">
     <span class="queue-rank">${v.order ? esc(v.order) : ""}</span>
     <div class="queue-cover">${cover}</div>
     <div class="queue-info">
-      <span class="queue-title">${title}</span>
-      <div class="queue-sub">${rt ? `<span>${rt}</span>` : ""}</div>
+      <span class="queue-title"${langAttr(v.title)}>${title}</span>
+      <div class="queue-sub">${rt ? `<span>${rt}</span>` : ""}${guessed}</div>
     </div>
     <div class="queue-badges">${strain}${badges.join("")}</div>
     <div class="queue-actions">
       ${volAction(v)}
-      <span class="edit-group">${menuBtn}</span>
+      <span class="edit-group">${editBtn}${menuBtn}</span>
     </div>
   </div>`;
 }

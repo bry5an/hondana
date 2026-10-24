@@ -26,7 +26,7 @@ the Admin page are both generated from it.
 | `analyze` | Analyze vocab | Tokenizes each Japanese book (MeCab/UniDic) and counts its vocabulary. About 1–2 s a book. | `vocab_epub.json`, `wordlists/`, `sentences/` |
 | `enrich` | Enrich (Natively) | Looks up each Japanese book's level and ratings on learnnatively.com. | `natively_epub.json` |
 | `pair` | Pair EN/JP | Matches English and Japanese editions of the same book. | `pairings.json` |
-| `audio-scan` | Scan audiobooks | Scans `audiobook_dirs` and joins the files with the catalog. | `audiobook_files.json`, `audiobook_library.json` |
+| `audio-scan` | Scan audiobooks | Scans `audiobook_dirs` (reading tags, keeping ids across moves) and joins the files with the catalog. `--dry-run` prints the moves and id changes and writes nothing. | `audiobook_files.json`, `audiobook_tags.json`, `covers/audiobooks/`, `audiobook_library.json` |
 | `catalog` | Fetch audiobook metadata | Looks up audiobooks whose `[ASIN]` the catalog doesn't know yet, from Audible's public catalog API. Makes no request when nothing is new. | `audiobook_catalog_extra.json` |
 | `xref` | Cross-ref audiobooks | Links each EPUB to its audiobook. | `audiobook_links.json` |
 | `build` | Build index | Joins everything into the index the pages read: cleaned titles, series and volume numbers, genres, descriptions, pairs, audiobooks, search. | `epub_library.json`, `search.sqlite3` |

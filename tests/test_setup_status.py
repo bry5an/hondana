@@ -21,6 +21,9 @@ def test_a_fresh_install_has_every_required_step_open(cfg):
     assert [s for s, v in got.items() if v["required"]] == ["epub_dir", "library", "known"]
     assert not any(v["done"] for v in got.values())
     assert setup_status.summary(cfg, {})["complete"] is False
+    # Folders are chosen on the Settings page, not by editing the config.
+    assert got["epub_dir"]["href"] == "/settings#library"
+    assert got["audiobooks"]["href"] == "/settings#audiobooks"
 
 
 def test_library_step_waits_for_japanese_books_to_be_analyzed(cfg):

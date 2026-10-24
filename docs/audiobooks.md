@@ -7,24 +7,100 @@ for iPhone, linked to its EPUB, and synced with the text ([audio-sync.md](audio-
 ## Getting audiobooks in
 
 1. List the folders that hold them in `audiobook_dirs` ([configuration.md](configuration.md)).
-   Hondana understands two shapes:
+   Hondana understands these shapes:
    - one `.m4b` file per book;
-   - a folder of `.mp3` files (and no `.m4b`) as one book, played in file-name order.
-2. Put the Audible **ASIN** in the file or folder name in square brackets, e.g.
-   `[08] リアデイルの大地にて8 [B0CCN9M612].m4b`. That is how a file is matched to its catalog
-   entry.
+   - a folder of `.mp3` files (and no `.m4b`) as one book, played in file-name order;
+   - `.m4a`, `.flac`, `.opus` or `.ogg` files (in a folder with no `.m4b`), grouped by their
+     album tag: one file is a book, several files with the same album are one book of tracks.
+
+   Folders whose name starts with a dot, NAS housekeeping folders (`@eaDir`, `#recycle`) and
+   unfinished downloads (`.part`, `.crdownload`, Safari's `.download`) are skipped.
+2. Tell Hondana which book it is. Any one of these works, and the first one found wins:
+   1. the Audible **ASIN** in the file or folder name in square brackets, e.g.
+      `[08] リアデイルの大地にて8 [B0CCN9M612].m4b`;
+   2. a match you made by hand with **Find on Audible** ([below](#matching-a-file-to-an-audible-book));
+   3. an ASIN in the file's tags (Libation and Audible's own files carry one).
+
+   A file with none of them still shows up, with the title, author, narrator, series, runtime and
+   cover from its tags, or else a guess from its file and folder names.
 3. Run **Run full pipeline** on Admin (or `uv run cli.py all`).
 
-`catalog` looks up every ASIN the catalog doesn't know in Audible Japan's public catalog API
-(no login) and stores the row in `data/audiobook_catalog_extra.json`. The row carries the title,
+`catalog` looks up every ASIN the catalog doesn't know in Audible's public catalog API (no login;
+the store is `[audible] marketplace`, Japan by default) and stores the row in `data/audiobook_catalog_extra.json`. The row carries the title,
 author, narrator, series and volume, runtime, cover, description and a genre. An ASIN Audible has
 no book for is asked about again after 14 days.
 
 iOS can't play some Audible downloads as they are. See [Files iOS won't play](#files-ios-wont-play).
 
+### Matching a file to an Audible book
+
+A file with no ASIN in its name or tags is a guess from its tags or file name. To say which Audible
+book it is, open its series page and choose **Find on Audible** (beside "Guessed from the file
+name"), or turn on **Edit** and use the row's ⋯ menu.
+
+1. The search is filled in from the file's title and author. Edit it and press **Search**, or paste
+   an ASIN or an Audible link (`…/pd/Title/B0CCN9M612`).
+2. Pick the book. Books another file here already is, are greyed out.
+3. Optionally tick **Also add [ASIN] to the file name**. The file (or the book's folder) is renamed
+   to `name [ASIN]`, so the match doesn't depend on Hondana's data folder and `consolidate` and other
+   tools read it too. It is left alone if the new name is taken, or when a folder holds two albums.
+4. **Match.**
+
+The file's id becomes the ASIN, and everything kept under the old id goes with it: your listening
+position, the text sync, hand-typed details and the cover. The Audible book's details are stored in
+`data/audiobook_catalog_extra.json` unless the catalog already has them, and the match is kept in
+`data/audiobook_assignments.json`. An EPUB that matches the book now links to it, and it can be
+synced with the text.
+
+- **Change it** by matching again. Only what belongs to the *file* moves to the new book (your
+  position and the text sync); details, Natively level and links belong to the book they were made for.
+- **Remove it** from the same dialog ("or remove the match"): the file goes back to what its tags and
+  name say.
+- A file whose name already has `[ASIN]` can't be matched, because the name always wins. Rename the file.
+- The search goes to the store set in **Settings → Metadata → Audible store**. An ASIN belongs to
+  one store, so pick the one your audiobooks come from. **Find on Audible** needs internet access and
+  says so when Audible doesn't answer.
+- A search that finds nothing is repeated without the author, then as plain keywords, which
+  forgives a trailing "(series 1)" that Audible's title search does not.
+- Not on Audible at all? **Enter the details by hand** opens the details form instead.
+
+### What a file's tags give
+
+Tags are read with [mutagen](https://mutagen.readthedocs.io) and cached in
+`data/audiobook_tags.json`, so a rescan only reads files that changed.
+
+| Field | Where it's read from |
+|---|---|
+| title | the title tag (a book of tracks: the album) |
+| author | album artist, else artist |
+| narrator | a narrator tag, else composer |
+| series, volume | `SERIES` / `SERIES-PART` (MP4 freeform, ID3 `TXXX`, Vorbis), else the movement name and number |
+| ASIN | `ASIN` (MP4 freeform, ID3 `TXXX`, Vorbis), or Audible's `CDEK` atom |
+| description, year, genre | the usual tags; a genre of just "Audiobook" is ignored |
+| cover | the embedded picture, else `cover.jpg`, `folder.jpg` or `front.jpg` beside a book that has its folder to itself |
+
+### Moving and renaming files
+
+Each audiobook keeps its id when you move, rename or re-tag the file, so its listening position,
+links and hand edits stay with it. A scan recognises a file it has seen before by the same place;
+else the same name and size; else the same tag title and length; else the same size and contents.
+It only does so when exactly one file fits, so two copies of the same file are never guessed
+between.
+
+When a file without an ASIN later gets one (you add `[ASIN]` to its name, tag it, or match it),
+its id becomes the ASIN and everything kept under the old id moves with it: listening positions,
+the hidden list, EPUB links, audio sync and hand edits. Hondana for iPhone's position updates still
+reach the book if they use the old id.
+
+To see what a scan would change without changing anything:
+
+```bash
+uv run cli.py audio-scan --dry-run
+```
+
 ## The catalog
 
-The catalog is two layers, read through `epublib/audiobook_catalog.py`:
+The catalog is four layers, read through `epublib/audiobook_catalog.py`:
 
 - `data/audiobook_catalog_base.json`: an **optional** base, keyed by ASIN, for a catalog you
   curate by hand: for example every audiobook your Audible account owns, downloaded or not, with
@@ -32,8 +108,12 @@ The catalog is two layers, read through `epublib/audiobook_catalog.py`:
   one. Scripts never write it.
 - `data/audiobook_catalog_extra.json`: rows pulled by `catalog`, laid over the base field by
   field. Generated; re-running `catalog` rebuilds it.
+- A row for every local file neither of them knows, made from its tags or its file name. These
+  rows are keyed by the audiobook's id and carry `source: "tags"` or `"filename"`. A row guessed
+  from a file name is never linked to an EPUB automatically (you can still link it by hand).
+- `data/audiobook_metadata_overrides.json`: details typed by hand, laid over any row.
 
-Neither file is in git. Both are per machine, under `data/`.
+None of the files is in git. All are per machine, under `data/`.
 
 A row looks like this (base-file shape; pulled rows have the same fields where Audible has them):
 
@@ -61,6 +141,19 @@ A row looks like this (base-file shape; pulled rows have the same fields where A
 | `genre` | One of the catalog's genre words (ライトノベル, ミステリー・サスペンス, SF・ファンタジー, ホラー, 児童書, 時代小説, 文芸作品, …). EPUBs linked to the audiobook inherit it. |
 
 Older base rows may be keyed `kikubon N`, `audiobook.jp N` or `dwango N` instead of an ASIN.
+
+## Correcting an audiobook's details
+
+Any audiobook's details can be fixed by hand, whether they came from the catalog, the file's tags
+or its file name. On an audiobook series page, turn on **Edit** and press the pencil on a volume.
+A volume whose details were only guessed from its file name says so in its row and has an **Add
+details** link, and the Audiobooks page's **Needs details** filter lists them all.
+
+The form takes the title, author, narrator, series and volume, genre, release date and
+description, and a cover image. Your values are kept in `data/audiobook_metadata_overrides.json`
+(a cover in `data/covers/audiobooks/custom/`) and win over the catalog and the tags on every
+rescan. **Reset** on a field goes back to the original value. Once a guessed book has a real title
+and author, it is linked to its EPUB like any other.
 
 ## Linking audiobooks to EPUBs
 
@@ -182,5 +275,6 @@ copies.
 
 Hondana serves audiobook files as they are; it doesn't convert or decrypt them. Bring DRM-free
 `.m4b` or `.mp3` files (tools such as Libation or OpenAudible export your own purchases that way).
+iOS plays `.m4a` and `.flac` too, but not Ogg (`.opus`, `.ogg`): those play in the web app only.
 If iOS refuses an `.m4b` whose container is laid out oddly, a lossless remux usually fixes it:
 `ffmpeg -i in.m4b -c copy -movflags +faststart out.m4b`.

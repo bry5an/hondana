@@ -874,6 +874,7 @@ async function uploadRow(row, { force = false, defer = true, single = false } = 
   paintRow(row);
   inflight++;
   try {
+    if (!(await ensureAdmin())) throw fail('Adding books needs the admin password', 'admin_required', true);
     const { status, data } = await xhrUpload(row.file, { force, defer, onXhr: (x) => { row.xhr = x; } }, (f) => {
       row.progress = f; row.text = `${Math.round(f * 100)}%`;
       const fill = row.el.querySelector('.uq-fill');
