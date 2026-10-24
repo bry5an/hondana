@@ -8,6 +8,7 @@ to day. These pages go deeper.
 | Page | What's in it |
 |---|---|
 | [configuration.md](configuration.md) | Every config key, how the config file is chosen, the `.env` secrets, and which files under `data/` to back up |
+| [desktop.md](desktop.md) | The tray app: first run, where it keeps things, how it restarts, `--self-test` |
 | [docker.md](docker.md) | Running the Docker image: compose, folders, permissions, the phone and the network, updating |
 | [networking.md](networking.md) | Reaching Hondana from your phone: IP and QR code, `.local` names, your own DNS, a reverse proxy, Tailscale |
 | [running-a-server.md](running-a-server.md) | Running as a systemd service, a reverse proxy, updating, scheduled reindexing, backups and their daily timer, security |

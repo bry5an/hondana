@@ -5,6 +5,7 @@ temp file + os.replace so a crash mid-write can never corrupt an index.
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import tempfile
@@ -19,6 +20,16 @@ def load_json(path: Path, default: Any = None) -> Any:
         return {} if default is None else default
     with open(path, encoding="utf-8") as f:
         return json.load(f)
+
+
+def sha256_of(path: Path) -> str:
+    """The SHA-256 of a file, read in 1 MB pieces. Lives here, not in scanner, so
+    modules that scanner (through purge and align) imports can use it without a cycle."""
+    h = hashlib.sha256()
+    with path.open("rb") as fh:
+        for chunk in iter(lambda: fh.read(1 << 20), b""):
+            h.update(chunk)
+    return h.hexdigest()
 
 
 _WINDOWS = os.name == "nt"
