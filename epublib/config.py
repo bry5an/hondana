@@ -1,72 +1,20 @@
-"""Load and resolve configuration from config.toml.
+"""The Config dataclass every module reads, and `load()`.
 
-Paths in the config may be absolute or relative to the repo root
-(the parent of this package). They are resolved to absolute Path objects here
-so the rest of the code never worries about the working directory.
+Which file is read, the defaults, the GUI overlay and the HONDANA_* environment
+overrides all live in settings.py; this module holds the resolved result. Paths
+are absolute by the time they get here, so the rest of the code never worries
+about the working directory.
 """
 from __future__ import annotations
 
-import os
-import tomllib
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
-# Repo root (parent of the epublib package directory)
+# The checkout (parent of the epublib package): templates, static, and the
+# config.toml / config.<env>.toml a git checkout may keep next to the code.
 ROOT = Path(__file__).resolve().parent.parent
-DEFAULT_CONFIG = ROOT / "config.toml"
-EXAMPLE_CONFIG = ROOT / "config.example.toml"
-# The server process picks up the active config via this env var (set by
-# `cli.py --config X serve`), so --config works for the web server too.
-CONFIG_ENV = "EPUB_LIBRARY_CONFIG"
-# Selects config.<env>.toml (if it exists) when no explicit path is given, so
-# one checkout can serve two setups; defaults to "dev". Otherwise config.toml.
-ENV_ENV = "EPUB_LIBRARY_ENV"
-DEFAULT_ENV = "dev"
-
-
-def _select_config_path() -> Path:
-    """Pick the active config file, in priority order.
-
-    1. EPUB_LIBRARY_CONFIG  — explicit path (set by `cli.py --config X`)
-    2. config.<EPUB_LIBRARY_ENV>.toml  — env-based (default env: "dev")
-    3. config.toml  — legacy single-file fallback
-    """
-    explicit = os.environ.get(CONFIG_ENV)
-    if explicit:
-        return Path(explicit)
-    env = (os.environ.get(ENV_ENV) or DEFAULT_ENV).strip().lower()
-    candidate = ROOT / f"config.{env}.toml"
-    if candidate.exists():
-        return candidate
-    if DEFAULT_CONFIG.exists():
-        return DEFAULT_CONFIG
-    return candidate  # not found → load() raises a helpful error
-
-
-def _resolve(base: Path, value: str) -> Path:
-    p = Path(value).expanduser()
-    return p if p.is_absolute() else (base / p).resolve()
-
-
-def _load_dotenv() -> None:
-    """Load KEY=VALUE lines from .env into os.environ.
-
-    Optional, gitignored; holds secrets (e.g. GOOGLE_BOOKS_API_KEY).
-    Kept as ~a dozen lines of stdlib rather than a python-dotenv dependency.
-    Existing environment variables always win.
-    """
-    env_file = ROOT / ".env"
-    if not env_file.exists():
-        return
-    for raw in env_file.read_text(encoding="utf-8").splitlines():
-        line = raw.strip()
-        if not line or line.startswith("#") or "=" not in line:
-            continue
-        key, _, value = line.partition("=")
-        key = key.strip()
-        value = value.strip().strip('"').strip("'")
-        if key and key not in os.environ:
-            os.environ[key] = value
+# `cli.py --config X serve` passes the file to the server process through this.
+CONFIG_ENV = "HONDANA_CONFIG"
 
 
 @dataclass
@@ -116,6 +64,18 @@ class Config:
     discovery_advertise_port: int | None = None
     # Host name the proxy answers to (TXT `host`), e.g. "books.local"; "" = not sent.
     discovery_advertise_host: str = ""
+    # The name the phone lists ("" = the machine's own) and the addresses to announce
+    # ([] = this machine's LAN addresses), for when the automatic choice is wrong.
+    discovery_name: str = ""
+    discovery_advertise_addresses: list[str] = field(default_factory=list)
+    # The address phones are told to use (QR code, connect link); "" = the request's Host.
+    public_url: str = ""
+
+    # Where each value came from (default | file | settings | env), the file read
+    # (None when there is none) and the home folder defaults sit under.
+    sources: dict[str, str] = field(default_factory=dict, compare=False)
+    config_path: Path | None = field(default=None, compare=False)
+    home: Path | None = field(default=None, compare=False)
 
     def __post_init__(self) -> None:
         if self.dicts_dir is None:
@@ -269,7 +229,7 @@ class Config:
     def audiobook_root(self) -> Path:
         """Canonical audiobook directory (consolidation destination)."""
         if not self.audiobook_dirs:
-            raise SystemExit("audiobook_dirs is empty; set it in config.toml")
+            raise SystemExit("audiobook_dirs is empty; set it in Settings or config.toml")
         return self.audiobook_dirs[0]
 
     @property
@@ -290,47 +250,7 @@ class Config:
 
 
 def load(path: Path | str | None = None) -> Config:
-    cfg_path = Path(path) if path else _select_config_path()
-    if not cfg_path.exists():
-        env = (os.environ.get(ENV_ENV) or DEFAULT_ENV).strip().lower()
-        raise SystemExit(
-            f"Config not found: {cfg_path}\n"
-            f"Create it for the '{env}' environment, e.g.:\n"
-            f"  cp {EXAMPLE_CONFIG.name} config.{env}.toml"
-        )
+    """The effective configuration: see settings.py for where each value comes from."""
+    from . import settings
 
-    _load_dotenv()
-
-    with open(cfg_path, "rb") as f:
-        raw = tomllib.load(f)
-
-    nat = raw.get("natively", {})
-    pair = raw.get("pairing", {})
-    xref = raw.get("xref", {})
-    mirror = raw.get("data_mirror", {})
-
-    return Config(
-        epub_dir=_resolve(ROOT, raw.get("epub_dir", "./books")),
-        data_dir=_resolve(ROOT, raw.get("data_dir", "./data")),
-        audiobook_data=_resolve(ROOT, raw.get("audiobook_data", "./data/audiobook_catalog_base.json")),
-        audiobook_dirs=[_resolve(ROOT, d) for d in raw.get("audiobook_dirs", [])],
-        audiobook_natively=_resolve(
-            ROOT, raw.get("audiobook_natively", "./data/natively_levels.json")
-        ),
-        host=raw.get("host", "0.0.0.0"),
-        port=int(raw.get("port", 8000)),
-        natively_delay=float(nat.get("delay", 0.4)),
-        natively_min_score=float(nat.get("min_score", 0.55)),
-        pairing_min_score=float(pair.get("min_score", 0.5)),
-        xref_min_score=float(xref.get("min_score", 0.62)),
-        data_mirror_publish=bool(mirror.get("publish", False)),
-        data_mirror_path=_resolve(ROOT, mirror["path"]) if mirror.get("path") else None,
-        google_books_api_key=os.environ.get("GOOGLE_BOOKS_API_KEY", "").strip(),
-        dicts_dir=_resolve(ROOT, raw["dicts_dir"]) if raw.get("dicts_dir") else None,
-        subplz_cmd=str(raw.get("alignment", {}).get("subplz_cmd", "")).strip(),
-        discovery_enabled=bool(raw.get("discovery", {}).get("enabled", True)),
-        discovery_advertise_port=(
-            int(raw["discovery"]["advertise_port"])
-            if raw.get("discovery", {}).get("advertise_port") else None),
-        discovery_advertise_host=str(raw.get("discovery", {}).get("advertise_host", "")).strip(),
-    )
+    return settings.load(path)

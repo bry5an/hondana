@@ -9,6 +9,7 @@ Usage: hondana <command> [--config PATH]   (or `uv run cli.py …` from a checko
     push      back up the hand-curated data/ files to a git repo (off unless configured; see epublib/data_mirror.py)
     seed-known [--top-n N]   seed active profile's known words with wordfreq top-N (en/ja)
     serve     run the web server
+    config [--json]   show every setting, its value and where it came from
     consolidate [--execute]   unify audiobook dirs (dry-run default)
     recover-moves   re-attach curated state orphaned by moving a file between folders
     gc [--apply]    report (and with --apply remove) data left behind by books no longer in the library
@@ -193,13 +194,34 @@ def cmd_align_remote(args):
     return 1 if failed else 0
 
 
+def cmd_config(args):
+    """Print every setting's effective value and where it came from."""
+    import json
+
+    from epublib import settings as settings_mod
+
+    cfg = config_mod.load(args.config)
+    rows = settings_mod.describe(cfg)
+    if args.json:
+        print(json.dumps({"config_path": str(cfg.config_path) if cfg.config_path else None,
+                          "home": str(cfg.home), "settings": rows}, ensure_ascii=False, indent=2))
+        return
+    print(f"config file: {cfg.config_path or '(none: defaults)'}")
+    print(f"home:        {cfg.home}")
+    width = max(len(r["key"]) for r in rows)
+    for r in rows:
+        value = r["value"]
+        shown = ", ".join(value) if isinstance(value, list) else ("" if value is None else str(value))
+        print(f"  {r['key']:<{width}}  {shown or '-'}   [{r['source']}]")
+
+
 def cmd_serve(args):
     import os
     import uvicorn
 
     # Make --config visible to the server process (it loads config at import).
     if args.config:
-        os.environ[config_mod.CONFIG_ENV] = str(args.config)
+        os.environ[config_mod.CONFIG_ENV] = str(Path(args.config).expanduser().resolve())
     cfg = _cfg(args)
     uvicorn.run("epublib.server:app", host=cfg.host, port=cfg.port, reload=args.reload)
 
@@ -283,6 +305,10 @@ def main(argv=None):
     p_ar.add_argument("--keep-audio", action="store_true",
                       help="keep the downloaded audio after a successful run")
     p_ar.set_defaults(func=cmd_align_remote)
+
+    p_conf = sub.add_parser("config", help="Show every setting, its value and where it came from")
+    p_conf.add_argument("--json", action="store_true", help="as JSON")
+    p_conf.set_defaults(func=cmd_config)
 
     p_serve = sub.add_parser("serve", help="Run the web server")
     p_serve.add_argument("--reload", action="store_true", help="Auto-reload (dev)")

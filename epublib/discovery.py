@@ -11,17 +11,30 @@ and the `hondana://connect` link its camera can open from a QR code.
 from __future__ import annotations
 
 import ipaddress
+import os
 import socket
 import urllib.parse
 from dataclasses import dataclass
+from pathlib import Path
 
 from .config import Config
 
 SERVICE_TYPE = "_hondana._tcp.local."
 LOOPBACK_HOSTS = {"localhost", "::1"}
-# Container/VM bridges and tunnels: addresses a phone on the LAN can't reach.
+# Container/VM bridges, tunnels and VPNs: addresses a phone on the LAN can't reach.
 VIRTUAL_IFACE_PREFIXES = ("docker", "br-", "veth", "virbr", "cni", "flannel", "cali", "lxc", "podman",
-                          "bridge", "vmnet", "utun")
+                          "bridge", "vmnet", "utun", "tailscale", "wg", "zt", "tun", "tap", "ipsec")
+CGNAT = ipaddress.ip_network("100.64.0.0/10")  # Tailscale and carrier NAT, never the home LAN
+HOME_LANS = tuple(ipaddress.ip_network(n) for n in ("192.168.0.0/16", "10.0.0.0/8", "172.16.0.0/12"))
+DOCKER_NETS = ipaddress.ip_network("172.16.0.0/12")  # where Docker puts a container's bridge address
+CONTAINER_HINT = ("running in a container whose only addresses are its own bridge network, which "
+                  "phones can't reach: use host networking, or set discovery.advertise_addresses "
+                  "and public_url to this machine's LAN address")
+
+
+def in_container() -> bool:
+    flag = os.environ.get("HONDANA_IN_CONTAINER", "").strip().lower()
+    return flag in ("1", "true", "yes") or Path("/.dockerenv").exists()
 
 
 def is_loopback(host: str) -> bool:
@@ -34,8 +47,13 @@ def is_loopback(host: str) -> bool:
         return False
 
 
-def display_name() -> str:
-    """The machine's name without the `.local` suffix: what the phone lists."""
+def display_name(cfg: Config | None = None) -> str:
+    """What the phone lists: the configured name, else the machine's name without
+    `.local` (in a container that is a random id, so "Hondana")."""
+    if cfg is not None and cfg.discovery_name:
+        return cfg.discovery_name
+    if in_container():
+        return "Hondana"
     name = socket.gethostname().split(".")[0]
     return name or "Hondana"
 
@@ -46,7 +64,7 @@ def is_virtual_iface(name: str) -> bool:
 
 def local_ipv4() -> list[str]:
     """This machine's usable IPv4 addresses (not loopback, not link-local, not on a
-    docker/bridge interface a phone can't reach)."""
+    docker/bridge/VPN interface a phone can't reach), home-LAN ranges first."""
     import ifaddr  # a zeroconf dependency, imported lazily like the other heavy ones
 
     found: list[str] = []
@@ -57,9 +75,21 @@ def local_ipv4() -> list[str]:
             if not ip.is_IPv4:
                 continue
             addr = ipaddress.ip_address(ip.ip)
-            if addr.is_loopback or addr.is_link_local or ip.ip in found:
+            if addr.is_loopback or addr.is_link_local or addr in CGNAT or ip.ip in found:
                 continue
             found.append(ip.ip)
+    return sorted(found, key=lambda a: not any(ipaddress.ip_address(a) in n for n in HOME_LANS))
+
+
+def lan_addresses(cfg: Config) -> list[str]:
+    """The addresses to announce and to put in a QR code: the configured ones, else
+    this machine's. In a container on a bridge network the only address is the
+    bridge's, which no phone can reach, so there are none."""
+    if cfg.discovery_advertise_addresses:
+        return list(cfg.discovery_advertise_addresses)
+    found = local_ipv4()
+    if in_container() and all(ipaddress.ip_address(a) in DOCKER_NETS for a in found):
+        return []
     return found
 
 
@@ -80,7 +110,7 @@ def plan(cfg: Config) -> Advert | None:
         if is_loopback(cfg.host):
             return None
         port = cfg.port
-    return Advert(port=port, name=display_name(), host=cfg.discovery_advertise_host)
+    return Advert(port=port, name=display_name(cfg), host=cfg.discovery_advertise_host)
 
 
 def build_info(advert: Advert, addresses: list[str]):
@@ -159,9 +189,10 @@ class Advertiser:
         try:
             from zeroconf.asyncio import AsyncZeroconf
 
-            addresses = local_ipv4()
+            addresses = lan_addresses(cfg)
             if not addresses:
-                print("discovery: no LAN address found; not advertising")
+                why = CONTAINER_HINT if in_container() else "no LAN address found"
+                print(f"discovery: {why}; not advertising")
                 return False
             self._info = build_info(advert, addresses)
             self._zc = AsyncZeroconf()
@@ -185,17 +216,37 @@ class Advertiser:
                 pass
 
 
-def connect_url(scheme: str, host_header: str) -> tuple[str, bool]:
-    """The address a phone should use, from the request's own `Host` (right for this
-    network). A loopback host (opened as localhost:8000 on the server itself) means
-    nothing to a phone, so it is swapped for this machine's LAN address; the second
-    value says whether that happened (False = the Host is used as given)."""
+def connect_url(scheme: str, host_header: str, cfg: Config | None = None) -> tuple[str, bool]:
+    """The address a phone should use: `public_url` when one is configured, else the
+    request's own `Host` (right for this network). A loopback host (opened as
+    localhost:8000 on the server itself) means nothing to a phone, so it is swapped
+    for this machine's LAN address; the second value says whether that happened."""
+    if cfg is not None and cfg.public_url:
+        return cfg.public_url.rstrip("/"), False
     parts = urllib.parse.urlsplit("//" + host_header)
     if parts.hostname and is_loopback(parts.hostname):
-        addrs = local_ipv4()
+        addrs = lan_addresses(cfg) if cfg is not None else local_ipv4()
         if addrs:
             return f"{scheme}://{addrs[0]}" + (f":{parts.port}" if parts.port else ""), True
     return f"{scheme}://{host_header}", False
+
+
+def connect_hint(url: str, cfg: Config) -> str:
+    """Why `url` won't work from a phone, when we can tell; "" otherwise."""
+    host = urllib.parse.urlsplit(url).hostname or ""
+    if cfg.public_url:
+        return ""
+    if is_loopback(host):
+        if in_container():
+            return ("Hondana runs in a container and can't see your network's address. Open this "
+                    "page with this computer's network address or name, or set public_url.")
+        return "This computer has no network address a phone could use."
+    try:
+        if in_container() and ipaddress.ip_address(host) in DOCKER_NETS:
+            return "That is the container's own address, which phones can't reach. Set public_url."
+    except ValueError:
+        pass
+    return ""
 
 
 def connect_link(server_url: str, profile: str) -> str:

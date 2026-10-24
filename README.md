@@ -53,6 +53,12 @@ There is no account, no cloud, and nothing to pay for.
 
 ## Quick start
 
+Two ways to run it:
+
+- **Docker** (a home server or NAS): copy [`docker/compose.yaml`](docker/compose.yaml), set your
+  folders, `docker compose up -d`. See [docs/docker.md](docs/docker.md).
+- **From source** (any Mac or Linux machine), below.
+
 ```bash
 git clone https://github.com/bry5an/hondana.git
 cd hondana

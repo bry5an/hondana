@@ -1,48 +1,49 @@
-# Copy to config.toml and edit for your machine (see docs/configuration.md).
-# `cli.py --config PATH` (or EPUB_LIBRARY_CONFIG) picks another file, and
-# EPUB_LIBRARY_ENV=<name> picks config.<name>.toml when that file exists.
-# All paths may be absolute or relative to the repo root (this directory).
+# Hondana's settings file. Every key is optional: delete what you don't need and
+# the default applies. Copy it to config.toml (next to the code, or in Hondana's
+# home folder) and edit it for your machine. See docs/configuration.md for the
+# home folder, the HONDANA_* environment variables that override any key, and
+# `uv run cli.py config`, which prints what is in effect and where it came from.
+# Relative paths are relative to this file's folder.
 
-# Folder that holds your .epub files (scanned recursively).
-epub_dir = "./books"
+# Folder that holds your .epub files (scanned recursively). Default: <home>/books
+# epub_dir = "/path/to/EPUBs"
 
-# Where generated indices and extracted covers are written.
-data_dir = "./data"
+# Where indices, covers, profiles and saved settings are written. Default: <home>/data
+# data_dir = "./data"
+
+# Folders scanned for audiobooks (.m4b files, or a folder of .mp3s as one book).
+# The FIRST is the canonical root: new audiobooks are filed there, and
+# `cli.py consolidate` moves everything into it. Default: ["<home>/audiobooks"]
+# audiobook_dirs = ["/path/to/Audiobooks"]
 
 # Folder of your own Yomitan dictionary zips (Jitendex, a monolingual dictionary,
-# Kanjium pitch, frequency lists). The server hosts them to the Hondana iOS
-# reader, which imports them. Personal and often not redistributable, so keep
-# the folder out of git. Defaults to <data_dir>/dicts.
+# Kanjium pitch, frequency lists), hosted to Hondana for iPhone. Personal and
+# often not redistributable. Default: <data_dir>/dicts
 # dicts_dir = "./data/dicts"
 
 # Optional base layer of the audiobook catalog: a JSON object keyed by Audible
 # ASIN. Leave it absent to start empty; the `catalog` stage then pulls a row for
-# every `[ASIN]` in your audiobook file names into data/audiobook_catalog_extra.json.
-audiobook_data = "./data/audiobook_catalog_base.json"
+# every `[ASIN]` in your audiobook file names. Default: <data_dir>/audiobook_catalog_base.json
+# audiobook_data = "./data/audiobook_catalog_base.json"
 
-# Natively difficulty data for the audiobook catalog (filled by `enrich-audiobooks`).
-audiobook_natively = "./data/natively_levels.json"
+# Natively levels for the audiobook catalog (filled by `enrich-audiobooks`).
+# Default: <data_dir>/natively_levels.json
+# audiobook_natively = "./data/natively_levels.json"
 
-# Roots scanned for local audiobook files. The FIRST entry is the canonical
-# root — `cli.py consolidate` moves everything into it. Extra entries are only
-# needed while the collection is still split across locations.
-audiobook_dirs = [
-  "/path/to/Audiobook Collection",
-]
-
-# Web server bind address. 0.0.0.0 exposes it on your LAN.
+# Web server bind address and port. 0.0.0.0 lets your phone reach it on the LAN;
+# 127.0.0.1 is this machine only (use that behind a reverse proxy).
 host = "0.0.0.0"
 port = 8000
+
+# Google Books API key for genres/descriptions by ISBN (or GOOGLE_BOOKS_API_KEY
+# in the environment / .env).
+# google_books_api_key = ""
 
 [natively]
 # Seconds between learnnatively.com requests (be polite).
 delay = 0.4
 # Minimum title-similarity (0-1) to accept an item match.
 min_score = 0.55
-
-[pairing]
-# Minimum title-similarity (0-1) to auto-pair an EN and JP edition.
-min_score = 0.5
 
 [xref]
 # Minimum title/series-similarity (0-1) to link an audiobook.

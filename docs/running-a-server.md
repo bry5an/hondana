@@ -1,7 +1,10 @@
 # Running Hondana as a server
 
 `uv run cli.py serve` is all a laptop needs. For a library the whole household (and their
-phones) can reach at any time, run it on an always-on machine as a service.
+phones) can reach at any time, run it on an always-on machine as a service: with Docker
+([docker.md](docker.md)), or from a checkout under systemd as below. How phones and other devices
+find it (IP and QR code, `.local` names, your own DNS, a reverse proxy, Tailscale) is in
+[networking.md](networking.md).
 
 ## As a systemd service (Linux)
 
@@ -48,8 +51,7 @@ To serve on port 80 under a friendly name, put nginx (or Caddy) in front, and se
 - **Big downloads.** Audiobooks and dictionaries are hundreds of megabytes, and the phone
   resumes them with `Range` requests. Don't set short timeouts or turn off range support.
 
-Phones find a Mac or Linux box by its mDNS name (`<hostname>.local`) on most home networks.
-Hondana for iPhone accepts `name.local:8000`, an IP address, or an `https://` address.
+Ready-made Caddy and nginx examples are in [networking.md](networking.md#4-a-reverse-proxy-a-name-without-the-port-optionally-https).
 
 While it runs, the server also announces itself over Bonjour (`_hondana._tcp`), and the app lists it
 in Settings › Server. The **Profile** page shows the address and a QR code as the fallback.
@@ -149,7 +151,7 @@ it on your home network:
 - Don't forward the port or expose it to the internet.
 - For access away from home, use a VPN to your network (WireGuard, Tailscale, …). Hondana for
   iPhone allows plain `http://` only to local names and addresses (`name.local`, `192.168.…`), so
-  a VPN host name such as a Tailscale `*.ts.net` name needs `https://` (a reverse proxy with a
-  certificate).
+  a VPN host name such as a Tailscale `*.ts.net` name needs `https://`: `tailscale serve`
+  provides it (see [networking.md](networking.md#5-away-from-home-tailscale)).
 - If you ever need it on the internet, put an authenticating reverse proxy in front (Caddy with
   basic auth, for example). The app itself needs no change.

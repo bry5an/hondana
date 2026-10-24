@@ -90,6 +90,61 @@ def test_docker_and_bridge_interfaces_are_not_advertised(monkeypatch):
     assert discovery.local_ipv4() == ["192.0.2.10"]
 
 
+def test_vpn_and_cgnat_addresses_are_skipped_and_the_lan_comes_first(monkeypatch):
+    import ifaddr
+
+    def adapter(name, ip):
+        return types.SimpleNamespace(name=name, ips=[types.SimpleNamespace(ip=ip, is_IPv4=True)])
+
+    monkeypatch.setattr(ifaddr, "get_adapters", lambda: [
+        adapter("en5", "203.0.113.9"), adapter("tailscale0", "100.101.1.2"), adapter("wg0", "10.8.0.2"),
+        adapter("en0", "100.70.0.4"), adapter("en1", "192.168.1.20")])
+    assert discovery.local_ipv4() == ["192.168.1.20", "203.0.113.9"]
+
+
+def test_in_a_container_a_bridge_address_is_never_offered(monkeypatch, tmp_path):
+    monkeypatch.setattr(discovery, "local_ipv4", lambda: ["172.17.0.3"])
+    monkeypatch.setenv("HONDANA_IN_CONTAINER", "1")
+    cfg = make_cfg(tmp_path, host="0.0.0.0")
+    assert discovery.lan_addresses(cfg) == []
+    assert discovery.display_name(cfg) == "Hondana"
+    url, substituted = discovery.connect_url("http", "localhost:8000", cfg)
+    assert (url, substituted) == ("http://localhost:8000", False)
+    assert "container" in discovery.connect_hint(url, cfg)
+    assert "container" in discovery.connect_hint("http://172.17.0.3:8000", cfg)
+    # Host networking: the LAN address is there and wins.
+    monkeypatch.setattr(discovery, "local_ipv4", lambda: ["192.168.1.20", "172.17.0.1"])
+    assert discovery.lan_addresses(cfg) == ["192.168.1.20", "172.17.0.1"]
+    monkeypatch.delenv("HONDANA_IN_CONTAINER")
+    monkeypatch.setattr(discovery, "local_ipv4", lambda: ["172.20.1.5"])  # a LAN on 172.16/12
+    assert discovery.lan_addresses(cfg) == ["172.20.1.5"]
+
+
+def test_configured_name_addresses_and_public_url_win(monkeypatch, tmp_path):
+    monkeypatch.setattr(discovery, "local_ipv4", lambda: ["172.17.0.3"])
+    monkeypatch.setenv("HONDANA_IN_CONTAINER", "1")
+    cfg = make_cfg(tmp_path, host="0.0.0.0", discovery_name="Shelf",
+                   discovery_advertise_addresses=["192.168.1.20"],
+                   public_url="https://hondana.example.ts.net/")
+    assert discovery.display_name(cfg) == "Shelf" and discovery.plan(cfg).name == "Shelf"
+    assert discovery.lan_addresses(cfg) == ["192.168.1.20"]
+    assert discovery.connect_url("http", "localhost:8000", cfg) == ("https://hondana.example.ts.net", False)
+    assert discovery.connect_hint("https://hondana.example.ts.net", cfg) == ""
+    cfg.public_url = ""
+    assert discovery.connect_url("http", "localhost:8000", cfg) == ("http://192.168.1.20:8000", True)
+
+
+def test_the_new_keys_are_read_from_the_config_and_environment(tmp_path, monkeypatch):
+    f = tmp_path / "c.toml"
+    f.write_text('public_url = "https://x.example"\n[discovery]\nname = "Shelf"\n'
+                 'advertise_addresses = ["192.168.1.20"]\n')
+    cfg = load(f)
+    assert (cfg.public_url, cfg.discovery_name) == ("https://x.example", "Shelf")
+    assert cfg.discovery_advertise_addresses == ["192.168.1.20"]
+    monkeypatch.setenv("HONDANA_DISCOVERY_ADVERTISE_ADDRESSES", "192.168.1.21, 192.168.1.22")
+    assert load(f).discovery_advertise_addresses == ["192.168.1.21", "192.168.1.22"]
+
+
 class FakeZeroconf:
     registered: list = []
     closed = False
