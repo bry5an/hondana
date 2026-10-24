@@ -19,7 +19,7 @@ def _legacy_load(cfg_path: Path, root: Path) -> Config:
         p = Path(value).expanduser()
         return p if p.is_absolute() else (base / p).resolve()
 
-    raw = tomllib.loads(cfg_path.read_text())
+    raw = tomllib.loads(cfg_path.read_text(encoding="utf-8"))
     nat, pair, xref = raw.get("natively", {}), raw.get("pairing", {}), raw.get("xref", {})
     mirror = raw.get("data_mirror", {})
     return Config(

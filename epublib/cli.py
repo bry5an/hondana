@@ -39,6 +39,7 @@ from epublib import orphans as orphans_mod
 from epublib import pipeline as pipeline_mod
 from epublib import profiles as profiles_mod
 from epublib import rekey as rekey_mod
+from epublib import stdio as stdio_mod
 from epublib.index_store import load_json
 
 
@@ -293,6 +294,7 @@ def cmd_serve(args):
     if args.config:
         os.environ[config_mod.CONFIG_ENV] = str(Path(args.config).expanduser().resolve())
     cfg = _cfg(args)
+    stdio_mod.redirect_to_log(cfg.data_dir / "logs" / "server.log")  # before uvicorn sets up logging
     uvicorn.run("epublib.server:app", host=cfg.host, port=cfg.port, reload=args.reload)
 
 
