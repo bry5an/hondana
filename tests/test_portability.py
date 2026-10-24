@@ -251,7 +251,7 @@ def test_printing_japanese_to_a_narrow_stream_does_not_crash(monkeypatch):
     import io
 
     raw = io.BytesIO()
-    narrow = io.TextIOWrapper(raw, encoding="cp1252", write_through=True)
+    narrow = io.TextIOWrapper(raw, encoding="cp1252", newline="\n", write_through=True)
     monkeypatch.setattr(sys, "stdout", narrow)
     monkeypatch.setattr(sys, "stderr", narrow)
     with pytest.raises(UnicodeEncodeError):
