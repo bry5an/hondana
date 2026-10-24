@@ -35,7 +35,7 @@ Homepage = "https://github.com/bry5an/hondana"
 # Installed editable (uv's default), so epublib/ keeps finding templates/ and
 # static/ next to it in the checkout.
 [build-system]
-requires = ["hatchling>=1.27"]
+requires = ["hatchling>=1.32.4"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
