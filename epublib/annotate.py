@@ -38,9 +38,7 @@ from __future__ import annotations
 import gzip
 import itertools
 import json
-import os
 import re
-import tempfile
 import threading
 import zipfile
 from pathlib import Path
@@ -48,7 +46,7 @@ from pathlib import Path
 from . import analyze, epub_text, pairing
 from .config import Config
 from .epub_meta import _find_opf_path
-from .index_store import load_json
+from .index_store import load_json, write_bytes_atomic
 from .scanner import sha256_of
 
 ANNOTATE_SCHEMA = 1
@@ -251,16 +249,7 @@ def ensure_pack(cfg: Config, book: dict, *, force: bool = False) -> Path:
             return path
         pack = build_pack(cfg, {**book, "sha256": sha})
         blob = json.dumps(pack, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
-        path.parent.mkdir(parents=True, exist_ok=True)
-        fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.", suffix=".tmp")
-        try:
-            os.fchmod(fd, 0o644)  # mkstemp makes it 0600; the other data files aren't
-            with os.fdopen(fd, "wb") as f:
-                f.write(gzip.compress(blob, 6))
-            os.replace(tmp, path)
-        except BaseException:
-            Path(tmp).unlink(missing_ok=True)
-            raise
+        write_bytes_atomic(path, gzip.compress(blob, 6))
     return path
 
 

@@ -37,10 +37,8 @@ from __future__ import annotations
 
 import hashlib
 import json
-import os
 import re
 import shutil
-import tempfile
 import threading
 import unicodedata
 from bisect import bisect_left
@@ -51,6 +49,7 @@ from pathlib import Path
 
 from . import annotate
 from .config import Config
+from .index_store import write_bytes_atomic
 
 ALIGN_SCHEMA = 2  # 2: the matcher no longer lets a repeated line skip ahead
 OK_COVERAGE = 0.90
@@ -282,19 +281,6 @@ def map_path(cfg: Config, book_id: str) -> Path:
     return cfg.alignments_dir / f"{book_id}.json"
 
 
-def _write(path: Path, data: bytes) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.", suffix=".tmp")
-    try:
-        os.fchmod(fd, 0o644)
-        with os.fdopen(fd, "wb") as f:
-            f.write(data)
-        os.replace(tmp, path)
-    except BaseException:
-        Path(tmp).unlink(missing_ok=True)
-        raise
-
-
 _locks: dict[str, threading.Lock] = {}
 _locks_guard = threading.Lock()
 
@@ -366,7 +352,7 @@ def _rebuild(cfg: Config, book: dict, ab_id: str, files: list[str] | None, sha: 
         "srt_sha": _srt_sha(sources), "coverage": coverage, "ok": coverage >= OK_COVERAGE,
         "matched": matched, "total": total, "docs": out_docs,
     }
-    _write(map_path(cfg, book["book_id"]),
+    write_bytes_atomic(map_path(cfg, book["book_id"]),
            json.dumps(result, ensure_ascii=False, separators=(",", ":")).encode("utf-8"))
     return result
 
@@ -402,14 +388,14 @@ def ingest_parts(cfg: Config, book: dict, ab_id: str | None, files: list[str] | 
         before = {part: path.read_bytes() if path.exists() else None for part, path in paths.items()}
         try:
             for part, path in paths.items():
-                _write(path, srts[part].encode("utf-8"))
+                write_bytes_atomic(path, srts[part].encode("utf-8"))
             return _rebuild(cfg, book, ab_id, files, sha)
         except BaseException:  # a book that can't have sentences keeps no orphan SRT
             for part, path in paths.items():
                 if before[part] is None:
                     path.unlink(missing_ok=True)
                 else:
-                    _write(path, before[part])
+                    write_bytes_atomic(path, before[part])
             raise
 
 

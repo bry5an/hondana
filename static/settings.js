@@ -55,7 +55,8 @@ function inputHtml(f) {
   const numeric = ["int", "optint", "float"].includes(f.kind);
   const type = numeric ? "number" : "text";
   const step = f.kind === "float" ? ' step="any"' : "";
-  const value = f.value === null || f.value === undefined ? "" : f.value;
+  let value = f.value === null || f.value === undefined ? "" : f.value;
+  if (Array.isArray(value)) value = JSON.stringify(value);  // a command given as an argv array
   return `<input type="${type}" id="${id}" data-key="${esc(f.key)}" value="${esc(value)}"${step}
     spellcheck="false"${off} ${desc}>`;
 }
