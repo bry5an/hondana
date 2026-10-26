@@ -64,7 +64,8 @@ from . import annotate
 from .config import Config
 from .index_store import write_bytes_atomic
 
-ALIGN_SCHEMA = 4  # 4: a plain transcript is matched globally; `source`, per-doc `len` and `est`
+ALIGN_SCHEMA = 4  # 4: a plain transcript is matched globally; `source`, per-doc `len` and `est`;
+# listeners' fixes (`anchors`) change the map through `anchors_sha`, not the schema
 # 3: squeezed runs of cues are spread back out over the time they took
 # 2: the matcher no longer lets a repeated line skip ahead
 OK_COVERAGE = 0.90
@@ -527,6 +528,162 @@ def _retime_part(rows: list, sizes: list[int], ids: list[int], median: float, us
             row[1] = round(begin + (end - begin) * done / total)
 
 
+# ── listeners' fixes ───────────────────────────────────────────────────
+# The phone's "tap the line you hear": sentence i starts at `ms` into `part`. From a
+# fix, the sentences after it are timed by the book's pace until the map agrees again, and the ones
+# before it back to where the map last agreed, the rows between spread by length. The phone applies
+# the same rule (HondanaKit `AudioAlignment.applying`) until the server's map has the fix in it.
+
+_ANCHOR_REACH = 400  # sentences a fix reaches before it gives up looking for the map to agree
+_RACING = 2.4        # a row read faster than this many times the book's pace is the map catching up
+_AGREE_MS = 2000     # how close the map must be to a fix's prediction, at least ...
+_AGREE_SHARE = 0.12  # ... or this share of the time walked from the fix
+
+
+def _part(row: list) -> str | None:
+    return row[2] if len(row) > 2 else None
+
+
+def _pace(rows: list[list | None], sizes: list[int], est: set[int]) -> float:
+    """Characters a millisecond, pauses included, over steps between neighbours that are neither a
+    hole (5 s or more) nor racing (over `_RACING` times the median step)."""
+    steps, last = [], None
+    for i, row in enumerate(rows):
+        if not row:
+            continue
+        if last is not None and _part(rows[last]) == _part(row) and last not in est and i not in est:
+            ms = row[0] - rows[last][0]
+            if 0 < ms < 5000:
+                steps.append((sizes[last], ms))
+        last = i
+    rates = sorted(c / ms for c, ms in steps)
+    if len(rates) < 10:
+        return 7 / 1000
+    median = rates[len(rates) // 2]
+    usual = [(c, ms) for c, ms in steps if c / ms <= _RACING * median]
+    total = sum(ms for _, ms in usual)
+    return sum(c for c, _ in usual) / total if total else 7 / 1000
+
+
+def apply_anchors(rows: list[list | None], sizes: list[int], anchors: dict[int, tuple[str | None, int]],
+                  est: set[int]) -> set[int]:
+    """Puts each fix (`{row index: (part, ms)}`) into `rows` in place. Returns the indices re-timed
+    around them, whose times are now estimates."""
+    if not anchors:
+        return set()
+    pace = _pace(rows, sizes, est)
+    for i, (part, ms) in anchors.items():
+        rows[i] = [ms, ms + round(max(sizes[i], 1) / pace)] + ([part] if part else [])
+    points = sorted(anchors)
+    moved: set[int] = set()
+    for n, at in enumerate(points):
+        ahead = points[n + 1] if n + 1 < len(points) else len(rows)
+        behind = points[n - 1] if n > 0 else -1
+        part = _part(rows[at])
+        moved |= _mend(rows, sizes, at, ahead, part, rows[at][1], pace, 1, est | moved)
+        moved |= _mend(rows, sizes, at, behind, part, rows[at][0], pace, -1, est | moved)
+    _keep_in_order(rows)
+    return moved - set(points)
+
+
+def _mend(rows: list, sizes: list[int], at: int, limit: int, part: str | None, origin: int, pace: float,
+          step: int, guessed: set[int]) -> set[int]:
+    """Re-times the rows on one side of a fix (`step` 1 forward, -1 back): see the section comment."""
+    def agrees(k: int, chars: float) -> bool:
+        row = rows[k]
+        if not row or _part(row) != part or k in guessed:
+            return False
+        if (row[1] - row[0]) * pace * _RACING < max(sizes[k], 1):
+            return False
+        predicted = origin + step * chars / pace
+        edge = row[0] if step > 0 else row[1]
+        return abs(edge - predicted) <= max(_AGREE_MS, _AGREE_SHARE * chars / pace)
+
+    walked, j, far = 0.0, at + step, None
+    while 0 <= j < len(rows) and abs(j - at) <= _ANCHOR_REACH:
+        if j == limit:
+            if rows[j] and _part(rows[j]) == part:
+                far = rows[j][0] if step > 0 else rows[j][1]
+            break
+        if rows[j] and _part(rows[j]) != part:  # time is per part
+            break
+        nxt = j + step
+        last = not 0 <= nxt < len(rows) or nxt == limit
+        if agrees(j, walked) and (last or agrees(nxt, walked + max(sizes[j], 1))):
+            far = rows[j][0] if step > 0 else rows[j][1]
+            break
+        walked += max(sizes[j], 1)
+        j += step
+    members = list(range(at + step, j, step))
+    if not members:
+        return set()
+    total = sum(max(sizes[k], 1) for k in members)
+    reach = (far if far is not None else origin + step * total / pace) - origin
+    t = float(origin)
+    for k in members:
+        nt = t + reach * max(sizes[k], 1) / total
+        a, b = (t, nt) if step > 0 else (nt, t)
+        rows[k] = [round(a), max(round(b), round(a) + 1)] + ([part] if part else [])
+        t = nt
+    return set(members)
+
+
+def _keep_in_order(rows: list[list | None]) -> None:
+    """Drops rows that start before the row ahead of them in the same part: what a fix leaves of the
+    stretch it replaced, which would send the highlight back."""
+    last: dict = {}
+    for i, row in enumerate(rows):
+        if not row:
+            continue
+        part = _part(row)
+        if part in last and row[0] < last[part]:
+            rows[i] = None
+            continue
+        last[part] = row[0]
+
+
+def anchors_path(cfg: Config, book_id: str) -> Path:
+    """The listeners' fixes, one JSON object a line, appended. Not `.json`: a purge keeps them with the
+    SRT (they are people's work, not derived), and the mirror and a rekey carry them like the SRT."""
+    return cfg.alignments_dir / f"{book_id}.anchors.jsonl"
+
+
+def add_anchors(cfg: Config, book_id: str, ab_id: str, events: list[dict], who: str | None = None) -> None:
+    """Appends fixes (`sync_anchor` events: doc, sentence, part, ms, op, ts) for the book's audiobook."""
+    lines = "".join(json.dumps({"ts": e["ts"], "ab_id": ab_id, "doc": e["doc"], "sentence": e["sentence"],
+                                "part": e.get("part"), "ms": e["ms"], "op": e.get("op", "set"), "by": who},
+                               ensure_ascii=False) + "\n" for e in events)
+    path = anchors_path(cfg, book_id)
+    with _book_lock(book_id):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with open(path, "a", encoding="utf-8") as f:
+            f.write(lines)
+
+
+def load_anchors(cfg: Config, book_id: str, ab_id: str | None) -> dict[tuple[int, int], tuple[str | None, int]]:
+    """The fixes in force for the book's audiobook: the newest per sentence, a `clear` withdrawing it."""
+    path = anchors_path(cfg, book_id)
+    if not path.exists():
+        return {}
+    newest: dict[tuple[int, int], dict] = {}
+    for line in path.read_text("utf-8").splitlines():
+        try:
+            e = json.loads(line)
+            key = (int(e["doc"]), int(e["sentence"]))
+        except (ValueError, KeyError, TypeError):
+            continue
+        if e.get("ab_id") != ab_id:
+            continue
+        if key not in newest or e.get("ts", 0) >= newest[key].get("ts", 0):
+            newest[key] = e
+    return {k: (e.get("part"), int(e["ms"])) for k, e in newest.items() if e.get("op", "set") == "set"}
+
+
+def _anchors_sha(cfg: Config, book_id: str) -> str:
+    path = anchors_path(cfg, book_id)
+    return hashlib.sha256(path.read_bytes()).hexdigest() if path.exists() else ""
+
+
 # ── storage ──────────────────────────────────────────────────────────────────
 
 def _srt_path(cfg: Config, book_id: str, index: int | None = None, kind: str = "synced") -> Path:
@@ -618,7 +775,8 @@ def _srt_sha(sources: list[tuple[str | None, Path]]) -> str:
 
 
 def etag(m: dict) -> str:
-    return f'"{m["schema"]}-{m["sha256"][:16]}-{m["srt_sha"][:8]}"'
+    fixes = m.get("anchors_sha") or ""
+    return f'"{m["schema"]}-{m["sha256"][:16]}-{m["srt_sha"][:8]}{"-" + fixes[:8] if fixes else ""}"'
 
 
 def _load_map(cfg: Config, book_id: str) -> dict | None:
@@ -640,6 +798,11 @@ def _rebuild(cfg: Config, book: dict, ab_id: str, files: list[str] | None, sha: 
     docs = annotate.sentence_texts(cfg, book)
     sentences = [t for d in docs for t in d["texts"]]
     rows, est = (match_transcript if kind == "transcript" else match_synced)(sentences, cues)
+    fixes = load_anchors(cfg, book["book_id"], ab_id)
+    where = {(d["index"], i): at for at, (d, i) in enumerate((d, i) for d in docs for i in range(len(d["texts"])))}
+    placed = {where[k]: v for k, v in fixes.items() if k in where}
+    est |= apply_anchors(rows, [len(norm(t)) for t in sentences], placed, est)
+    est -= set(placed)
     out_docs, at, timed = [], 0, 0
     for d in docs:
         n = len(d["texts"])
@@ -653,7 +816,11 @@ def _rebuild(cfg: Config, book: dict, ab_id: str, files: list[str] | None, sha: 
     result = {
         "schema": ALIGN_SCHEMA, "book_id": book["book_id"], "sha256": sha, "audiobook": ab_id,
         "srt_sha": _srt_sha(sources), "source": kind, "coverage": coverage, "ok": coverage >= OK_COVERAGE,
-        "matched": timed - len(est), "estimated": len(est), "total": total, "docs": out_docs,
+        "matched": timed - len(est), "estimated": len(est), "total": total,
+        # The fixes in it: the phone stops applying its own once the server has them, and a
+        # map with this key is one from a server that takes them.
+        "anchors": [[d, s, part, ms] for (d, s), (part, ms) in sorted(fixes.items()) if (d, s) in where],
+        "anchors_sha": _anchors_sha(cfg, book["book_id"]), "docs": out_docs,
     }
     write_bytes_atomic(map_path(cfg, book["book_id"]),
            json.dumps(result, ensure_ascii=False, separators=(",", ":")).encode("utf-8"))
@@ -728,7 +895,8 @@ def ensure(cfg: Config, book: dict, ab_id: str | None, files: list[str] | None) 
     sha = annotate.book_sha(cfg, book)
     with _book_lock(book_id):
         m = _load_map(cfg, book_id)
-        if m is not None and m.get("schema") == ALIGN_SCHEMA and m.get("sha256") == sha:
+        if (m is not None and m.get("schema") == ALIGN_SCHEMA and m.get("sha256") == sha
+                and m.get("anchors_sha", "") == _anchors_sha(cfg, book_id)):
             return m
         return _rebuild(cfg, book, ab_id, files, sha)
 
@@ -742,12 +910,13 @@ def state(cfg: Config, book: dict, ab_id: str | None, job: dict | None = None) -
     since it never touches the stored alignment."""
     m = _load_map(cfg, book["book_id"])
     if m is None:
-        out = {"state": "none", "coverage": None, "ok": None, "source": None, "estimated": None}
+        out = {"state": "none", "coverage": None, "ok": None, "source": None, "estimated": None, "anchors": 0}
     else:
         fresh = (m.get("schema") == ALIGN_SCHEMA and m.get("audiobook") == ab_id
                  and m.get("sha256") == (book.get("sha256") or m.get("sha256")))
         out = {"state": "ready" if fresh else "stale", "coverage": m.get("coverage"), "ok": m.get("ok"),
-               "source": m.get("source", "synced"), "estimated": m.get("estimated")}
+               "source": m.get("source", "synced"), "estimated": m.get("estimated"),
+               "anchors": len(m.get("anchors") or [])}
     if job and job["state"] in ("queued", "running"):
         out.update(state=job["state"], step=job.get("step"))
     elif job and job["state"] == "error":

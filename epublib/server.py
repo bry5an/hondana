@@ -1106,6 +1106,31 @@ async def delete_alignment(book_id: str, kind: str | None = None) -> JSONRespons
     return JSONResponse({"status": "deleted", "book_id": book_id})
 
 
+def _record_anchors(events: list[dict], who: str | None) -> list[dict]:
+    """Stores listeners' sync fixes against each book's linked audiobook; the map picks them
+    up on its next request. Refused: an unknown book (`no_book`), a fix made against another
+    audiobook (`audiobook_changed`) or another copy of the book (`book_changed`)."""
+    rejected: list[dict] = []
+    library = _load_library()
+    by_book: dict[str, list[dict]] = {}
+    for e in events:
+        book = library.get(e["book_id"])
+        if not book:
+            rejected.append({"id": e["id"], "reason": "no_book"})
+            continue
+        ab_id = _book_audiobook(book)[0]
+        if ab_id != e["ab_id"]:
+            rejected.append({"id": e["id"], "reason": "audiobook_changed"})
+            continue
+        if e.get("sha256") and e["sha256"] != annotate_mod.book_sha(cfg, book):
+            rejected.append({"id": e["id"], "reason": "book_changed"})
+            continue
+        by_book.setdefault(e["book_id"], []).append(e)
+    for book_id, fixes in by_book.items():
+        align_mod.add_anchors(cfg, book_id, fixes[0]["ab_id"], fixes, who)
+    return rejected
+
+
 @app.post("/api/reader/events", response_model=schemas.ReaderEventsResponse)
 async def api_reader_events(
     payload: schemas.ReaderEventsRequest, req_cfg: Config = Depends(_request_cfg)
@@ -1134,6 +1159,7 @@ async def api_reader_events(
             reader_mod.merge_progress(req_cfg, events["progress"])
             reader_mod.merge_audio_progress(req_cfg, events["audio_progress"])
             tag = reader_mod.etag(req_cfg)
+        rejected += _record_anchors(events["sync_anchor"], req_cfg.active_user)
         return {"status": "ok", "skipped": skipped, "rejected": rejected,
                 "etag": tag, "books_moved": moved}
 

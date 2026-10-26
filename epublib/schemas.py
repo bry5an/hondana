@@ -148,6 +148,7 @@ class AlignmentState(BaseModel):
     source: str | None = None  # the map is made from a `transcript` (SubPlz gen) or a `synced` SRT
     estimated: int | None = None  # sentences whose time is estimated, not heard
     accepts: list[str] = []  # the SRT kinds an upload may be: synced, transcript
+    anchors: int = 0  # listeners' fixes in the map
 
 
 class AlignmentQueueBook(BaseModel):
@@ -275,8 +276,23 @@ class AudioProgressEvent(_ReaderEvent):
     seconds: float = Field(ge=0.0, allow_inf_nan=False)
 
 
+class SyncAnchorEvent(_ReaderEvent):
+    """A listener's fix of the audio sync: sentence `sentence` of the pack's
+    section `doc` starts `ms` into `part` (the mp3 of a folder; null for an m4b). `op: clear` withdraws
+    it. Fixes are kept per book and audiobook, not per profile: the audio is the same for everyone."""
+    type: Literal["sync_anchor"]
+    book_id: str = Field(min_length=1)
+    ab_id: str = Field(min_length=1)
+    sha256: str = ""
+    doc: int = Field(ge=0)
+    sentence: int = Field(ge=0)
+    part: str | None = None
+    ms: int = Field(default=0, ge=0)
+    op: Literal["set", "clear"] = "set"
+
+
 ReaderEvent = Annotated[
-    StatusEvent | LookupEvent | ProgressEvent | AudioProgressEvent, Field(discriminator="type")]
+    StatusEvent | LookupEvent | ProgressEvent | AudioProgressEvent | SyncAnchorEvent, Field(discriminator="type")]
 READER_EVENT = TypeAdapter(ReaderEvent)
 
 

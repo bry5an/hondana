@@ -180,6 +180,15 @@ afterwards, between the lines either side of them. A sentence no line covers get
 its heard neighbours when that reads at a speaking pace, and is listed in the map's `est`;
 otherwise it has none (front matter nobody reads, or music).
 
+### Fixes from the phone
+
+Where a map is still wrong, Hondana for iPhone lets you long-press the follow button, choose Fix
+sync and tap the line you are hearing. The phone puts that line at that moment and re-times the
+sentences around it until the map agrees again; it also sends the fix to the server, which keeps it
+for the book and its audiobook (`data/alignments/<book_id>.anchors.jsonl`, for everyone using the
+server) and builds it into the map, so every device gets it. `GET /api/books/<book_id>/status`
+counts them in `alignment.anchors`.
+
 ### Squeezed stretches (synced SRTs)
 
 Whisper sometimes loses the audio for a minute or two and writes the cues of that stretch packed

@@ -431,7 +431,7 @@ def test_state_reports_none_ready_and_stale(cfg):
     book = _book(cfg)
     assert align.state(cfg, book, "B0AUDIO001")["state"] == "none"
     align.ingest(cfg, book, "B0AUDIO001", None, srt_for(SENTENCES))
-    assert align.state(cfg, book, "B0AUDIO001") == {"state": "ready", "coverage": 1.0, "ok": True, "source": "synced", "estimated": 0}
+    assert align.state(cfg, book, "B0AUDIO001") == {"state": "ready", "coverage": 1.0, "ok": True, "source": "synced", "estimated": 0, "anchors": 0}
     assert align.state(cfg, book, "B0OTHER0002")["state"] == "stale"
     assert align.state(cfg, {**book, "sha256": "00" * 32}, "B0AUDIO001")["state"] == "stale"
 
@@ -501,7 +501,7 @@ def test_post_then_get_serves_the_map_with_an_etag_and_a_304(client):
 
     st = client.get("/api/books/b1/status").json()["alignment"]
     assert st == {"state": "ready", "coverage": 1.0, "ok": True, "step": None, "error": None,
-                  "eligible": True, "can_generate": False, "source": "synced", "estimated": 0,
+                  "eligible": True, "can_generate": False, "source": "synced", "estimated": 0, "anchors": 0,
                   "accepts": ["synced", "transcript"]}
 
     raw = client.get("/api/reader/books/b1/alignment.srt")
@@ -576,3 +576,81 @@ def test_the_alignment_routes_do_not_wait_for_the_index_lock(client, server):
     with server._index_lock:
         assert client.get("/api/reader/books/b1/alignment").status_code == 200
         assert _post(client, "b1", srt_for(SENTENCES)).status_code == 200
+
+
+# ── listeners' fixes ──────────────────────────────────────────────────
+
+def _lagging() -> list[list]:
+    """300 sentences of 20 characters at 5 a second, where the map runs 240 s behind from 50 and races
+    back through 150..229: the shape SubPlz sync gave one real novel."""
+    rows = [[4000 * i, 4000 * (i + 1)] for i in range(300)]
+    for i in range(50, 150):
+        rows[i] = [4000 * i + 240_000, 4000 * (i + 1) + 240_000]
+    for i in range(150, 230):
+        rows[i] = [840_000 + 1000 * (i - 150), 840_000 + 1000 * (i - 149)]
+    return rows
+
+
+def test_a_fix_puts_a_lagging_stretch_right_until_the_map_agrees_again():
+    rows = _lagging()
+    moved = align.apply_anchors(rows, [20] * 300, {60: (None, 240_000)}, set())
+    assert all(abs(rows[i][0] - 4000 * i) <= 2000 for i in range(50, 300))
+    assert rows[230] == [920_000, 924_000] and rows[49] == [196_000, 200_000]
+    assert 61 in moved and 229 in moved and 60 not in moved and 230 not in moved
+    starts = [r[0] for r in rows if r]
+    assert starts == sorted(starts)
+
+
+def test_a_fix_where_the_map_is_right_changes_nothing():
+    rows = [[4000 * i, 4000 * (i + 1)] for i in range(300)]
+    before = [list(r) for r in rows]
+    align.apply_anchors(rows, [20] * 300, {100: (None, 400_000)}, set())
+    assert rows == before
+
+
+def _fix(client, *, ms=240_000, op="set", ab="B0AUDIO001", sentence=12, eid="f1", ts=1000):
+    return client.post("/api/reader/events", json={"events": [{
+        "id": eid, "ts": ts, "type": "sync_anchor", "book_id": "b1", "ab_id": ab,
+        "doc": 0, "sentence": sentence, "part": None, "ms": ms, "op": op}]}).json()
+
+
+def test_a_fix_from_the_phone_reaches_the_map_and_its_etag(client):
+    assert _post(client, "b1", srt_for(SENTENCES)).status_code == 200
+    first = client.get("/api/reader/books/b1/alignment")
+    body = first.json()
+    assert body["anchors"] == []                                         # this server takes fixes
+    doc = body["docs"][0]["index"]
+    r = client.post("/api/reader/events", json={"events": [{
+        "id": "f1", "ts": 1000, "type": "sync_anchor", "book_id": "b1", "ab_id": "B0AUDIO001",
+        "doc": doc, "sentence": 12, "part": None, "ms": 50_000}]}).json()
+    assert r["rejected"] == []
+    again = client.get("/api/reader/books/b1/alignment", headers={"If-None-Match": first.headers["etag"]})
+    assert again.status_code == 200 and again.headers["etag"] != first.headers["etag"]
+    fixed = again.json()
+    assert fixed["anchors"] == [[doc, 12, None, 50_000]] and fixed["docs"][0]["sents"][12][0] == 50_000
+    assert client.get("/api/books/b1/status").json()["alignment"]["anchors"] == 1
+    client.post("/api/reader/events", json={"events": [{
+        "id": "f2", "ts": 1001, "type": "sync_anchor", "book_id": "b1", "ab_id": "B0AUDIO001",
+        "doc": doc, "sentence": 12, "ms": 0, "op": "clear"}]})
+    assert client.get("/api/reader/books/b1/alignment").json()["docs"][0]["sents"][12] == [48000, 52000]
+
+
+def test_a_fix_for_another_audiobook_or_book_is_refused(client):
+    assert _post(client, "b1", srt_for(SENTENCES)).status_code == 200
+    assert _fix(client, ab="B0OTHER0002")["rejected"] == [{"id": "f1", "reason": "audiobook_changed"}]
+    r = client.post("/api/reader/events", json={"events": [{
+        "id": "f3", "ts": 1, "type": "sync_anchor", "book_id": "nope", "ab_id": "B0AUDIO001", "doc": 0,
+        "sentence": 0, "ms": 0}]}).json()
+    assert r["rejected"] == [{"id": "f3", "reason": "no_book"}]
+
+
+def test_fixes_are_kept_like_the_srt(cfg):
+    book = _book(cfg)
+    align.ingest(cfg, book, "B0AUDIO001", None, srt_for(SENTENCES))
+    align.add_anchors(cfg, "b1", "B0AUDIO001", [{"ts": 1, "doc": 0, "sentence": 3, "part": None, "ms": 10}])
+    purge.purge_book(cfg, "b1")
+    assert align.anchors_path(cfg, "b1").exists()
+    rekey.rekey_book(cfg, "b1", "b2")
+    assert align.anchors_path(cfg, "b2").exists() and not align.anchors_path(cfg, "b1").exists()
+    assert align.load_anchors(cfg, "b2", "B0AUDIO001") == {(0, 3): (None, 10)}
+    assert align.load_anchors(cfg, "b2", "B0OTHER0002") == {}

@@ -129,7 +129,7 @@ def parse_events(raw: list[dict]) -> tuple[dict[str, list[dict]], list[dict]]:
     """Validate a batch event by event. Returns the good ones grouped by type,
     each as a plain dict with `ts` in Unix seconds, and the rejected ones as
     `{id, reason}`."""
-    good: dict[str, list[dict]] = {"status": [], "lookup": [], "progress": [], "audio_progress": []}
+    good: dict[str, list[dict]] = {"status": [], "lookup": [], "progress": [], "audio_progress": [], "sync_anchor": []}
     rejected: list[dict] = []
     for item in raw:
         eid = item.get("id") if isinstance(item.get("id"), str) else None

@@ -209,7 +209,7 @@ def test_a_book_goes_from_none_to_ready(live, mac):
     assert live.status("b1")["alignment"] == {"state": "ready", "coverage": 1.0, "ok": True,
                                               "step": None, "error": None,
                                               "eligible": True, "can_generate": False,
-                                              "source": "synced", "estimated": 0,
+                                              "source": "synced", "estimated": 0, "anchors": 0,
                                               "accepts": ["synced", "transcript"]}
     served = live.json("/api/reader/books/b1/alignment")
     assert served["docs"][0]["sents"][0] == [0, 4000] and served["matched"] == len(SENTENCES)
