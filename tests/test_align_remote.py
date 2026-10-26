@@ -545,7 +545,7 @@ def gen(tmp_path):
     plain = [s.replace("。", "") for s in SENTENCES]
     heard = tmp_path / "heard.txt"
     heard.write_text("\n".join(plain[i] + plain[i + 1] for i in range(0, len(plain), 2)) + "\n", encoding="utf-8")
-    return f"{sys.executable} {script} {{audio}} {{out}} {heard}"
+    return [sys.executable, str(script), "{audio}", "{out}", str(heard)]
 
 
 def test_a_transcript_run_uploads_what_was_heard(live, mac, gen):
@@ -589,7 +589,7 @@ def test_a_transcribe_command_needs_audio_and_out_but_no_text(live, mac):
 
 def test_the_machines_transcribe_cmd_makes_transcript_the_default(live, lib, tmp_path, gen, monkeypatch, capsys):
     toml = tmp_path / "align.toml"
-    toml.write_text(f'server = "{live.base}"\n[alignment]\ntranscribe_cmd = "{gen}"\n', encoding="utf-8")
+    toml.write_text(f'server = "{live.base}"\n[alignment]\ntranscribe_cmd = {toml_str(gen)}\n', encoding="utf-8")
     monkeypatch.setattr(align_remote, "USER_CONFIG", toml)
     monkeypatch.setattr(align_remote, "CACHE_ROOT", tmp_path / "cache")
     assert align_remote.user_settings()["transcribe_cmd"] == gen

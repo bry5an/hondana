@@ -132,7 +132,7 @@ def test_a_transcribe_cmd_is_preferred_and_its_srt_is_stored_as_a_transcript(rig
     plain = [s.replace("。", "") for s in SENTENCES]
     heard = tmp_path / "heard.txt"
     heard.write_text("\n".join(plain[i] + plain[i + 1] for i in range(0, len(plain), 2)), encoding="utf-8")
-    cfg.transcribe_cmd = f"{sys.executable} {script} {{audio}} {{out}} {heard}"
+    cfg.transcribe_cmd = [sys.executable, str(script), "{audio}", "{out}", str(heard)]
     assert align_jobs.job_command(cfg)[1] == "transcript" and align_jobs.command_problem(cfg) is None
     jobs.enqueue(book, "B0AUDIO001", None, _audio(audio_dir, "book.m4b"))
     assert _wait(jobs, "b1", "done", "error")["state"] == "done"
