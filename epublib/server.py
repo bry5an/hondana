@@ -905,10 +905,11 @@ def api_reader_vocab(request: Request, req_cfg: Config = Depends(_request_cfg)) 
 
 @app.get("/api/reader/progress")
 def api_reader_progress(req_cfg: Config = Depends(_request_cfg)) -> JSONResponse:
-    """Every reading position this profile has synced, by stable key, and every
-    audiobook position, by ab_id."""
+    """Every reading position this profile has synced, by stable key, every
+    audiobook position, by ab_id, and its bookmarks, by id, deletions included."""
     return JSONResponse({"progress": reader_mod.load_progress(req_cfg),
-                         "audio": reader_mod.load_audio_progress(req_cfg)},
+                         "audio": reader_mod.load_audio_progress(req_cfg),
+                         "bookmarks": reader_mod.load_bookmarks(req_cfg)},
                         headers={"Cache-Control": "no-cache"})
 
 
@@ -928,25 +929,28 @@ def _book_audiobook(book: dict) -> tuple[str | None, list[str] | None]:
     entry = _load_audiobooks().get(ab_id) if ab_id and link.get("audiobook_local") else None
     if not entry or not entry.get("local"):
         return None, None
-    return ab_id, entry.get("files") or None
+    return ab_id, align_mod.track_files(entry)
 
 
 def _book_alignment_state(book: dict) -> dict:
     """`align.state` plus what the book page needs to decide what to offer:
     `eligible` (a Japanese book whose linked audiobook is on this machine, the only
     kind that can be synced) and `can_generate` (`subplz_cmd` can run here, so the
-    page offers Generate; otherwise it shows the command for a machine with a GPU)."""
+    page offers Generate; otherwise it shows the command for a machine with a GPU).
+    `accepts` lists the SRT kinds an upload may be, so `align-remote` can tell
+    a server that takes transcripts from one that would store them as synced."""
     ab_id = _book_audiobook(book)[0]
     out = align_mod.state(cfg, book, ab_id, _align_jobs.status(book["book_id"]))
     out["eligible"] = book.get("language") == "ja" and ab_id is not None
     out["can_generate"] = align_jobs_mod.command_problem(cfg) is None
+    out["accepts"] = list(align_mod.KINDS)
     return out
 
 
 def _align_error(e: Exception) -> JSONResponse:
     if isinstance(e, annotate_mod.NoPack):
         return JSONResponse({"reason": e.reason}, status_code=409)
-    status = 409 if e.reason in ("no_audiobook", "audiobook_changed", "book_changed") else 400
+    status = 409 if e.reason in ("no_audiobook", "audiobook_changed", "book_changed") else 400  # bad_srt, bad_part, bad_kind
     return JSONResponse({"reason": e.reason, "detail": str(e)}, status_code=status)
 
 
@@ -974,12 +978,15 @@ async def api_reader_alignment(book_id: str, request: Request) -> Response:
 
 
 @app.get("/api/reader/books/{book_id}/alignment.srt")
-async def api_reader_alignment_srt(book_id: str, part: str | None = None) -> Response:
-    """The raw SRT as ingested (`?part=` names the mp3 of a multi-file audiobook)."""
+async def api_reader_alignment_srt(book_id: str, part: str | None = None, kind: str | None = None) -> Response:
+    """The raw SRT as ingested (`?part=` names the mp3 of a multi-file audiobook):
+    the one the map is made from, or `?kind=synced|transcript`."""
     book = _require_book(book_id)
     _, files = _book_audiobook(book)
+    if kind is not None and kind not in align_mod.KINDS:
+        return _align_error(align_mod.AlignError("bad_kind", f"kind is one of {', '.join(align_mod.KINDS)}"))
     try:
-        raw = await asyncio.to_thread(align_mod.srt_bytes, cfg, book_id, files, part)
+        raw = await asyncio.to_thread(align_mod.srt_bytes, cfg, book_id, files, part, kind)
     except align_mod.AlignError as e:
         return _align_error(e)
     if raw is None:
@@ -988,18 +995,21 @@ async def api_reader_alignment_srt(book_id: str, part: str | None = None) -> Res
 
 
 @app.get("/api/books/{book_id}/alignment/text")
-async def alignment_text(book_id: str) -> Response:
+async def alignment_text(book_id: str, numbered: bool = False) -> Response:
     """The book's sentences, one per line (`text/plain`), exactly what a SubPlz run
     on this machine is given as `{text}`: a machine with the GPU but not the
     library aligns against it, so the cues it returns are the sentences this
     server matches. `X-Book-Sha256` is the EPUB they came from; send it back with
-    the upload. 409 `{reason}`: `no_audiobook`, or the pack's `drm`/`not_ja`/`no_text`."""
+    the upload. `?numbered=1` gives every pack sentence as `doc:sentence<TAB>text`,
+    the empty ones too, so a line can be read against a map. 409 `{reason}`:
+    `no_audiobook`, or the pack's `drm`/`not_ja`/`no_text`."""
     book = _require_book(book_id)
     if not _book_audiobook(book)[0]:
         return _align_error(align_mod.AlignError("no_audiobook", "link a local audiobook first"))
 
     def _run() -> tuple[str, str]:
-        return align_mod.book_text(cfg, book), annotate_mod.book_sha(cfg, book)
+        text = align_mod.numbered_text(cfg, book) if numbered else align_mod.book_text(cfg, book)
+        return text, annotate_mod.book_sha(cfg, book)
 
     try:
         text, sha = await asyncio.to_thread(_run)
@@ -1011,14 +1021,17 @@ async def alignment_text(book_id: str) -> Response:
 
 @app.post("/api/books/{book_id}/alignment", response_model=schemas.AlignmentIngestResponse)
 async def ingest_alignment(book_id: str, file: list[UploadFile] = File(...),
-                           part: list[str] = Form(default=[]),
+                           part: list[str] = Form(default=[]), kind: str = Form(default="synced"),
                            x_book_sha256: str | None = Header(default=None)) -> JSONResponse:
     """Ingest an SRT of the book's linked audiobook (made by SubPlz or similar) and
     match it to the book's sentences. Needs a local audiobook link. For a
     multi-file (mp3) audiobook send one `file` per mp3, each with a `part` (its
     file name) in the same order; they are stored and matched together or not at
     all. `X-Book-Sha256` (from `…/alignment/text`) makes the upload 409
-    `book_changed` when the EPUB is no longer the one the SRTs were made from."""
+    `book_changed` when the EPUB is no longer the one the SRTs were made from.
+    `kind`: `synced` (default; SubPlz `sync`, the book's own lines) or
+    `transcript` (SubPlz `gen`, what Whisper heard), which the map is then made
+    from; a `transcript` that is really `sync` output is 400 `bad_srt`."""
     book = _require_book(book_id)
     if part and len(part) != len(file):
         raise HTTPException(status_code=400, detail="Send one part per file")
@@ -1037,9 +1050,9 @@ async def ingest_alignment(book_id: str, file: list[UploadFile] = File(...),
     def _run() -> dict:
         if x_book_sha256 and x_book_sha256 != annotate_mod.book_sha(cfg, book):
             raise align_mod.AlignError("book_changed", "the EPUB changed since its text was fetched")
-        m = align_mod.ingest_parts(cfg, book, ab_id, files, srts)
-        return {"status": "ok", "audiobook": m["audiobook"], "coverage": m["coverage"],
-                "ok": m["ok"], "matched": m["matched"], "total": m["total"]}
+        m = align_mod.ingest_parts(cfg, book, ab_id, files, srts, kind)
+        return {"status": "ok", "audiobook": m["audiobook"], "source": m["source"], "coverage": m["coverage"],
+                "ok": m["ok"], "matched": m["matched"], "estimated": m["estimated"], "total": m["total"]}
 
     try:
         return JSONResponse(await asyncio.to_thread(_run))
@@ -1081,12 +1094,46 @@ async def cancel_alignment(book_id: str) -> JSONResponse:
 
 
 @app.delete("/api/books/{book_id}/alignment")
-async def delete_alignment(book_id: str) -> JSONResponse:
+async def delete_alignment(book_id: str, kind: str | None = None) -> JSONResponse:
+    """Remove the book's SRTs and map, or with `?kind=` only that kind's SRTs (the map
+    is then rebuilt from what is left: removing a transcript goes back to the synced SRT)."""
     _require_book(book_id)
-    _align_jobs.cancel(book_id)  # a run in flight would write the alignment straight back
-    if not await asyncio.to_thread(align_mod.delete, cfg, book_id):
+    if kind is not None and kind not in align_mod.KINDS:
+        return _align_error(align_mod.AlignError("bad_kind", f"kind is one of {', '.join(align_mod.KINDS)}"))
+    if kind is None:
+        _align_jobs.cancel(book_id)  # a run in flight would write the alignment straight back
+    if not await asyncio.to_thread(align_mod.delete, cfg, book_id, kind):
         raise HTTPException(status_code=404, detail="No alignment for this book")
     return JSONResponse({"status": "deleted", "book_id": book_id})
+
+
+def _record_anchors(events: list[dict], who: str | None) -> list[dict]:
+    """Stores listeners' sync fixes against each book's linked audiobook; the map picks them
+    up on its next request. A fix made against an id the audiobook has since left (it gained a
+    key, audiobook_rekey.py) is read as the one it went to. Refused: an unknown book (`no_book`),
+    a fix made against another audiobook (`audiobook_changed`) or another copy of the book
+    (`book_changed`)."""
+    rejected: list[dict] = []
+    library = _load_library()
+    aliases = load_json(cfg.audiobook_aliases, {})
+    by_book: dict[str, list[dict]] = {}
+    for e in events:
+        book = library.get(e["book_id"])
+        if not book:
+            rejected.append({"id": e["id"], "reason": "no_book"})
+            continue
+        ab_id = _book_audiobook(book)[0]
+        e = {**e, "ab_id": aliases.get(e["ab_id"], e["ab_id"])}
+        if ab_id != e["ab_id"]:
+            rejected.append({"id": e["id"], "reason": "audiobook_changed"})
+            continue
+        if e.get("sha256") and e["sha256"] != annotate_mod.book_sha(cfg, book):
+            rejected.append({"id": e["id"], "reason": "book_changed"})
+            continue
+        by_book.setdefault(e["book_id"], []).append(e)
+    for book_id, fixes in by_book.items():
+        align_mod.add_anchors(cfg, book_id, fixes[0]["ab_id"], fixes, who)
+    return rejected
 
 
 @app.post("/api/reader/events", response_model=schemas.ReaderEventsResponse)
@@ -1116,7 +1163,9 @@ async def api_reader_events(
             reader_mod.append_lookups(req_cfg, events["lookup"])
             reader_mod.merge_progress(req_cfg, events["progress"])
             reader_mod.merge_audio_progress(req_cfg, events["audio_progress"])
+            reader_mod.merge_bookmarks(req_cfg, events["bookmark"])
             tag = reader_mod.etag(req_cfg)
+        rejected += _record_anchors(events["sync_anchor"], req_cfg.active_user)
         return {"status": "ok", "skipped": skipped, "rejected": rejected,
                 "etag": tag, "books_moved": moved}
 

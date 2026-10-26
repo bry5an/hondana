@@ -92,7 +92,7 @@ def push(cfg: Config) -> None:
     # Audiobook alignment SRTs: a Whisper run to make again. The map beside
     # them is derived and left out.
     if cfg.alignments_dir.is_dir():
-        for src in sorted(cfg.alignments_dir.glob("*.srt")):
+        for src in sorted([*cfg.alignments_dir.glob("*.srt"), *cfg.alignments_dir.glob("*.anchors.jsonl")]):
             _copy(src, mirror_dir / "alignments" / src.name)
 
     if cfg.users_dir.is_dir():

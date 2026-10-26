@@ -109,11 +109,35 @@ def test_a_run_stores_the_same_files_as_an_upload(rig):
     cfg, book, audio_dir, jobs = rig
     jobs.enqueue(book, "B0AUDIO001", None, _audio(audio_dir, "book.m4b"))
     assert _wait(jobs, "b1", "done", "error")["state"] == "done"
-    assert align.state(cfg, book, "B0AUDIO001") == {"state": "ready", "coverage": 1.0, "ok": True}
+    assert align.state(cfg, book, "B0AUDIO001") == {"state": "ready", "coverage": 1.0, "ok": True,
+                                                     "source": "synced", "estimated": 0, "anchors": 0,
+                                                     "speech_gaps": None, "speech_gap_s": None}
     m = json.loads(align.map_path(cfg, "b1").read_text("utf-8"))
     assert m["docs"][0]["sents"][0] == [0, 4000] and m["matched"] == len(SENTENCES)
     assert align._srt_path(cfg, "b1").exists()
     assert not align.work_dir(cfg, "b1").exists()  # a finished run cleans up after itself
+
+
+def test_a_transcribe_cmd_is_preferred_and_its_srt_is_stored_as_a_transcript(rig, tmp_path):
+    """With `transcribe_cmd` set, a run here makes a plain transcript (no {text})."""
+    cfg, book, audio_dir, jobs = rig
+    script = tmp_path / "fake_gen.py"
+    script.write_text(
+        "import pathlib, sys\n"
+        "audio, out, heard = map(pathlib.Path, sys.argv[1:4])\n"
+        "lines = heard.read_text(encoding='utf-8').splitlines()\n"
+        "ts = lambda ms: '%02d:%02d:%02d,%03d' % (ms // 3600000, ms // 60000 % 60, ms // 1000 % 60, ms % 1000)\n"
+        "cues = ['%d\\n%s --> %s\\n%s\\n' % (i + 1, ts(i * 8000), ts((i + 1) * 8000), s) for i, s in enumerate(lines)]\n"
+        "(out / (audio.stem + '.srt')).write_text('\\n'.join(cues), encoding='utf-8')\n", encoding="utf-8")
+    plain = [s.replace("。", "") for s in SENTENCES]
+    heard = tmp_path / "heard.txt"
+    heard.write_text("\n".join(plain[i] + plain[i + 1] for i in range(0, len(plain), 2)), encoding="utf-8")
+    cfg.transcribe_cmd = [sys.executable, str(script), "{audio}", "{out}", str(heard)]
+    assert align_jobs.job_command(cfg)[1] == "transcript" and align_jobs.command_problem(cfg) is None
+    jobs.enqueue(book, "B0AUDIO001", None, _audio(audio_dir, "book.m4b"))
+    assert _wait(jobs, "b1", "done", "error")["state"] == "done"
+    assert align.state(cfg, book, "B0AUDIO001")["source"] == "transcript"
+    assert align._srt_path(cfg, "b1", kind="transcript").exists() and not align._srt_path(cfg, "b1").exists()
 
 
 def test_the_text_given_to_the_command_is_one_sentence_per_line(rig):

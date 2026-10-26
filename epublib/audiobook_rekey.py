@@ -10,18 +10,21 @@ everything kept under the old id:
 - every profile's `audio_progress.json` (the newer position wins if both exist),
 - the values of `audiobook_link_overrides.json` (an EPUB pinned to the old id),
 - the `audiobook` field of each `alignments/*.json` map (otherwise
-  `align.ensure` refuses it as `audiobook_changed`),
+  `align.ensure` refuses it as `audiobook_changed`) and the `ab_id` of each fix in
+  `alignments/*.anchors.jsonl` (otherwise `align.load_anchors` ignores it),
+- every profile's `bookmarks.json`: a bookmark's audio place is a place in the file,
 - the hand-typed details (`audiobook_metadata_overrides.json`, with a hand-set
   cover's image) and the Natively match (`natively_levels.json`), never over an
   entry the new id already has,
 
 and records `old → new` in `audiobook_aliases.json`, which
 `reader.merge_audio_progress` applies to phone events that still carry the old
-id. Hand matches (`audiobook_assignments.json`) are keyed by fid and need nothing.
+id (and, for bookmarks and sync fixes, `reader.merge_bookmarks` and the server's
+`_record_anchors`). Hand matches (`audiobook_assignments.json`) are keyed by fid and need nothing.
 
 A file moving from one catalog key to another (a hand match corrected, or
 removed) carries only what belongs to the *file*: the listening position, the
-alignment and the alias (`whole_book=False`). The rest describes the book the old
+bookmarks, the alignment with its sync fixes and the alias (`whole_book=False`). The rest describes the book the old
 key names — the Natively match, hand-typed details, the prune flag, an EPUB
 pinned to it — and stays with that row.
 
@@ -29,6 +32,7 @@ The caller holds `server._index_lock` (or is a pipeline stage that does).
 """
 from __future__ import annotations
 
+from . import align
 from .config import Config
 from .index_store import load_json, save_json
 from .reader import parse_ts
@@ -84,6 +88,15 @@ def rekey_audiobook(cfg: Config, old: str, new: str, *, whole_book: bool = True)
             save_json(path, progress)
             touched.append(f"users/{d.name}/{path.name}")
 
+        path = d / "bookmarks.json"
+        marks = load_json(path, {})
+        moved_marks = [k for k, v in marks.items() if isinstance(v, dict) and v.get("ab_id") == old]
+        if moved_marks:
+            for k in moved_marks:
+                marks[k] = {**marks[k], "ab_id": new}
+            save_json(path, marks)
+            touched.append(f"users/{d.name}/{path.name}")
+
     links = load_json(cfg.audiobook_link_overrides, {})
     if whole_book and old in links.values():
         save_json(cfg.audiobook_link_overrides,
@@ -95,6 +108,7 @@ def rekey_audiobook(cfg: Config, old: str, new: str, *, whole_book: bool = True)
         if isinstance(m, dict) and m.get("audiobook") == old:
             save_json(path, {**m, "audiobook": new})
             touched.append(f"alignments/{path.name}")
+    touched += [f"alignments/{name}" for name in align.rekey_anchors(cfg, old, new)]
 
     # A hand-set cover's image goes with its flag (moved above, in the overrides).
     if whole_book:

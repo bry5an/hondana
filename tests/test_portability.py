@@ -84,6 +84,98 @@ def test_a_posix_permission_error_is_not_retried(tmp_path, monkeypatch):
     assert len(calls) == 1
 
 
+# ── a file read or removed while another thread is deleting it ──────────────
+
+def _flaky_open(monkeypatch, errors: list[type[OSError]]) -> list[int]:
+    """`open` in index_store raises the given errors in turn, then opens for real."""
+    calls: list[int] = []
+    real = open
+
+    def fake(path, *args, **kw):
+        calls.append(1)
+        if len(calls) <= len(errors):
+            raise errors[len(calls) - 1]("in use")
+        return real(path, *args, **kw)
+
+    monkeypatch.setattr(index_store, "open", fake, raising=False)
+    monkeypatch.setattr(index_store.time, "sleep", lambda s: None)
+    return calls
+
+
+def test_a_windows_read_is_retried_while_the_file_is_being_deleted(tmp_path, monkeypatch):
+    monkeypatch.setattr(index_store, "_WINDOWS", True)
+    path = tmp_path / "state.json"
+    path.write_text('{"a": 1}', encoding="utf-8")
+    calls = _flaky_open(monkeypatch, [PermissionError, PermissionError])
+    assert index_store.load_json(path) == {"a": 1} and len(calls) == 3
+
+
+def test_a_file_that_is_gone_by_the_retry_reads_as_missing(tmp_path, monkeypatch):
+    monkeypatch.setattr(index_store, "_WINDOWS", True)
+    calls = _flaky_open(monkeypatch, [PermissionError, PermissionError, FileNotFoundError])
+    assert index_store.load_json(tmp_path / "gone.json") == {}
+    assert len(calls) == 3                                     # it kept trying until the file was gone
+    assert index_store.load_json(tmp_path / "gone.json", {"d": 1}) == {"d": 1}
+
+
+def test_a_windows_read_gives_up_eventually(tmp_path, monkeypatch):
+    monkeypatch.setattr(index_store, "_WINDOWS", True)
+    calls = _flaky_open(monkeypatch, [PermissionError] * 99)
+    with pytest.raises(PermissionError):
+        index_store.load_json(tmp_path / "x.json")
+    assert len(calls) == index_store._REPLACE_TRIES
+
+
+def test_a_posix_read_permission_error_is_not_retried(tmp_path, monkeypatch):
+    monkeypatch.setattr(index_store, "_WINDOWS", False)
+    calls = _flaky_open(monkeypatch, [PermissionError] * 99)
+    with pytest.raises(PermissionError):
+        index_store.load_json(tmp_path / "x.json")
+    assert len(calls) == 1
+
+
+def test_a_missing_file_is_still_the_default_everywhere(tmp_path):
+    assert index_store.load_json(tmp_path / "nope.json") == {}
+    assert index_store.load_json(tmp_path / "nope.json", []) == []
+
+
+def _flaky_unlink(monkeypatch, failures: int) -> list[int]:
+    calls: list[int] = []
+    real = os.unlink
+
+    def unlink(path):
+        calls.append(1)
+        if len(calls) <= failures:
+            raise PermissionError("in use")
+        real(path)
+
+    monkeypatch.setattr(index_store.os, "unlink", unlink)
+    monkeypatch.setattr(index_store.time, "sleep", lambda s: None)
+    return calls
+
+
+def test_a_windows_remove_is_retried_while_the_file_is_open(tmp_path, monkeypatch):
+    monkeypatch.setattr(index_store, "_WINDOWS", True)
+    path = tmp_path / "state.json"
+    path.write_text("{}", encoding="utf-8")
+    calls = _flaky_unlink(monkeypatch, failures=3)
+    index_store.remove_file(path)
+    assert not path.exists() and len(calls) == 4
+
+
+def test_removing_a_missing_file_is_still_an_error_for_the_caller(tmp_path):
+    with pytest.raises(FileNotFoundError):
+        index_store.remove_file(tmp_path / "nope.json")
+
+
+def test_a_posix_remove_permission_error_is_not_retried(tmp_path, monkeypatch):
+    monkeypatch.setattr(index_store, "_WINDOWS", False)
+    calls = _flaky_unlink(monkeypatch, failures=99)
+    with pytest.raises(PermissionError):
+        index_store.remove_file(tmp_path / "x")
+    assert len(calls) == 1
+
+
 # ── subplz_cmd as an argv array ──────────────────────────────────────────────
 
 WIN_EXE = r"C:\Program Files\SubPlz\subplz.exe"

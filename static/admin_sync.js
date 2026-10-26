@@ -22,7 +22,7 @@ function sqRender(q) {
   }
   const total = q.total_min ? ` · ${sqHours(q.total_min)} of audio` : "";
   sqCount.textContent = `${n}${total}`;
-  // A server with no GPU leaves the transcribing to another machine; one with `subplz_cmd` can do
+  // A server with no GPU leaves the transcribing to another machine; one with `transcribe_cmd` (or `subplz_cmd`) can do
   // it from each book's page, and the command still works for the whole queue overnight.
   const cmd = `uv run cli.py align-remote --missing --run --server ${sqServer}`;
   sqCmd.hidden = false;

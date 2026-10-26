@@ -16,10 +16,21 @@ from typing import Any
 
 
 def load_json(path: Path, default: Any = None) -> Any:
-    if not path.exists():
-        return {} if default is None else default
-    with open(path, encoding="utf-8") as f:
-        return json.load(f)
+    """The JSON in `path`, or `default` ({} when None) if there is no such file. On Windows,
+    opening a file another thread is deleting or replacing fails with PermissionError until
+    that finishes, so it is retried briefly (as `replace_file` is), and a file that is gone by
+    then reads as missing. On POSIX the same error is real and raised at once."""
+    for attempt in range(1, _REPLACE_TRIES + 1):
+        try:
+            with open(path, encoding="utf-8") as f:
+                return json.load(f)
+        except FileNotFoundError:
+            break
+        except PermissionError:
+            if not _WINDOWS or attempt == _REPLACE_TRIES:
+                raise
+            time.sleep(_REPLACE_PAUSE * attempt)
+    return {} if default is None else default
 
 
 def sha256_of(path: Path) -> str:
@@ -44,6 +55,20 @@ def replace_file(src: Path | str, dst: Path | str) -> None:
     for attempt in range(1, _REPLACE_TRIES + 1):
         try:
             os.replace(src, dst)
+            return
+        except PermissionError:
+            if not _WINDOWS or attempt == _REPLACE_TRIES:
+                raise
+            time.sleep(_REPLACE_PAUSE * attempt)
+
+
+def remove_file(path: Path | str) -> None:
+    """Path.unlink, retried briefly on Windows, where it fails with PermissionError while
+    another thread has the file open (a request reading it). A missing file is still
+    FileNotFoundError, for the caller to decide; on POSIX any other error is raised at once."""
+    for attempt in range(1, _REPLACE_TRIES + 1):
+        try:
+            os.unlink(path)
             return
         except PermissionError:
             if not _WINDOWS or attempt == _REPLACE_TRIES:

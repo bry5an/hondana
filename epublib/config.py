@@ -65,6 +65,9 @@ class Config:
     # with {audio}, {text} and {out} placeholders; "" = not configured. A string is
     # split like a POSIX shell, a list is the argv as written (Windows paths).
     subplz_cmd: str | list[str] = ""
+    # Command template that transcribes one audio file (SubPlz `gen`), with {audio}
+    # and {out}; preferred over subplz_cmd when set. "" = not configured. Same forms.
+    transcribe_cmd: str | list[str] = ""
 
     # A folder to drop new EPUBs and audiobooks into (inbox.py); None = no inbox.
     inbox_dir: Path | None = None
@@ -182,6 +185,11 @@ class Config:
     def reader_audio_progress(self) -> Path:
         """Audiobook positions synced from the iOS reader, by ab_id (reader.py)."""
         return self.users_dir / self.active_user / "audio_progress.json"
+
+    @property
+    def reader_bookmarks(self) -> Path:
+        """Bookmarks synced from the iOS reader, by bookmark id, deletions kept a while (reader.py)."""
+        return self.users_dir / self.active_user / "bookmarks.json"
 
     @property
     def anki_note_type(self) -> Path:

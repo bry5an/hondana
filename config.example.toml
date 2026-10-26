@@ -75,6 +75,11 @@ min_score = 0.62
 # that has the GPU (set subplz_cmd in ITS config); /api/books/{id}/alignment
 # also takes an SRT made any other way.
 subplz_cmd = ""
+# The better way to align: transcribe the audio (SubPlz `gen`, which needs only {audio} and
+# {out}), and Hondana matches what was heard to the book itself, so one wrongly placed
+# line can't drag the rest of the book out of step. Used in place of subplz_cmd when set.
+# Same forms as subplz_cmd: a string, or a TOML array of arguments.
+transcribe_cmd = ""
 
 [discovery]
 # Hondana for iPhone finds the server over Bonjour (`_hondana._tcp`) while

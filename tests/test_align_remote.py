@@ -208,7 +208,9 @@ def test_a_book_goes_from_none_to_ready(live, mac):
     assert r.ok and r.response["coverage"] == 1.0
     assert live.status("b1")["alignment"] == {"state": "ready", "coverage": 1.0, "ok": True,
                                               "step": None, "error": None,
-                                              "eligible": True, "can_generate": False}
+                                              "eligible": True, "can_generate": False,
+                                              "source": "synced", "estimated": 0, "anchors": 0,
+                                              "speech_gaps": None, "speech_gap_s": None, "accepts": ["synced", "transcript"]}
     served = live.json("/api/reader/books/b1/alignment")
     assert served["docs"][0]["sents"][0] == [0, 4000] and served["matched"] == len(SENTENCES)
     assert not (mac[1] / live.host / "b1").exists()  # a finished run clears its cache
@@ -279,10 +281,10 @@ def test_an_upload_the_server_refuses_leaves_the_work_for_a_retry(live, mac, ser
     plan = _plan(live, "b1")
     real = live.upload
 
-    def stale(book_id, srts, sha):
+    def stale(book_id, srts, sha, kind="synced"):
         lib_ = server._load_library()
         save_json(server.cfg.library_index, {**lib_, "b1": {**lib_["b1"], "sha256": "ee" * 32}})
-        return real(book_id, srts, sha)
+        return real(book_id, srts, sha, kind)
 
     live.upload = stale
     with pytest.raises(RemoteError, match="book_changed"):
@@ -518,3 +520,79 @@ def test_ctrl_c_on_the_command_exits_130_and_keeps_the_work(live, lib, tmp_path)
         os.kill(child, signal.SIGKILL)
     assert (home / ".cache/hondana/align" / live.host / "b1" / "audio" / "book.m4b").exists()
     assert live.status("b1")["alignment"]["state"] == "none"
+
+
+# ── transcripts ───────────────────────────────────────────────────────
+
+FAKE_GEN = '''\
+import pathlib, sys
+audio, out, heard = map(pathlib.Path, sys.argv[1:4])
+with open(audio.parent / "calls.log", "a") as f:
+    f.write(audio.name + "\\n")
+lines = heard.read_text(encoding="utf-8").splitlines()
+def ts(ms):
+    return "%02d:%02d:%02d,%03d" % (ms // 3600000, ms // 60000 % 60, ms // 1000 % 60, ms % 1000)
+cues = ["%d\\n%s --> %s\\n%s\\n" % (i + 1, ts(i * 8000), ts((i + 1) * 8000), s) for i, s in enumerate(lines)]
+(out / (audio.stem + ".srt")).write_text("\\n".join(cues), encoding="utf-8")
+'''
+
+
+@pytest.fixture
+def gen(tmp_path):
+    """A stand-in `subplz gen`: writes what it "heard" (two lines to a cue, no 。), given no text."""
+    script = tmp_path / "fake_gen.py"
+    script.write_text(FAKE_GEN, encoding="utf-8")
+    plain = [s.replace("。", "") for s in SENTENCES]
+    heard = tmp_path / "heard.txt"
+    heard.write_text("\n".join(plain[i] + plain[i + 1] for i in range(0, len(plain), 2)) + "\n", encoding="utf-8")
+    return [sys.executable, str(script), "{audio}", "{out}", str(heard)]
+
+
+def test_a_transcript_run_uploads_what_was_heard(live, mac, gen):
+    r = align_remote.align_book(live, _plan(live, "b1"), gen, kind="transcript", log=lambda _: None)
+    assert r.ok and r.response["source"] == "transcript" and r.response["matched"] == len(SENTENCES)
+    st = live.status("b1")["alignment"]
+    assert st["state"] == "ready" and st["source"] == "transcript"
+    assert live.json("/api/reader/books/b1/alignment")["source"] == "transcript"
+
+
+def test_a_book_synced_before_is_redone_by_a_transcript_without_force(live, mac, gen):
+    assert _run(live, mac, "b1").response["source"] == "synced"
+    assert _run(live, mac, "b1").skipped                                     # synced again: done already
+    r = align_remote.align_book(live, _plan(live, "b1"), gen, kind="transcript", log=lambda _: None)
+    assert not r.skipped and r.response["source"] == "transcript"
+    again = align_remote.align_book(live, _plan(live, "b1"), gen, kind="transcript", log=lambda _: None)
+    assert again.skipped
+
+
+def test_a_server_that_takes_no_transcripts_is_told_to_update(live, mac, gen, monkeypatch):
+    real = live.status
+
+    def old(book_id):
+        st = real(book_id)
+        st["alignment"].pop("accepts", None)
+        return st
+
+    monkeypatch.setattr(live, "status", old)
+    with pytest.raises(RemoteError, match="doesn't take transcripts"):
+        align_remote.align_book(live, _plan(live, "b1"), gen, kind="transcript", log=lambda _: None)
+    assert live.status("b1")["alignment"]["state"] == "none"
+
+
+def test_a_transcribe_command_needs_audio_and_out_but_no_text(live, mac):
+    assert align_jobs.transcribe_problem("subplz gen --audio {audio} --output-dir {out}") is None
+    assert "{out}" in align_jobs.transcribe_problem("subplz gen --audio {audio}")
+    with pytest.raises(RemoteError, match="transcribe_cmd"):
+        align_remote.align_book(live, _plan(live, "b1"), "subplz gen --audio {audio}", kind="transcript",
+                                log=lambda _: None)
+
+
+def test_the_machines_transcribe_cmd_makes_transcript_the_default(live, lib, tmp_path, gen, monkeypatch, capsys):
+    toml = tmp_path / "align.toml"
+    toml.write_text(f'server = "{live.base}"\n[alignment]\ntranscribe_cmd = {toml_str(gen)}\n', encoding="utf-8")
+    monkeypatch.setattr(align_remote, "USER_CONFIG", toml)
+    monkeypatch.setattr(align_remote, "CACHE_ROOT", tmp_path / "cache")
+    assert align_remote.user_settings()["transcribe_cmd"] == gen
+    assert cli.main(["align-remote", "b1"]) == 0
+    out = capsys.readouterr().out
+    assert "transcript" in out and live.status("b1")["alignment"]["source"] == "transcript"

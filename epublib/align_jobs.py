@@ -46,8 +46,9 @@ class JobCancelled(Exception):
 
 
 def command_problem(cfg: Config) -> str | None:
-    """Why `subplz_cmd` can't be run, or None if it can."""
-    return template_problem(cfg.subplz_cmd)
+    """Why neither `transcribe_cmd` nor `subplz_cmd` can be run, or None if one can."""
+    template, kind = job_command(cfg)
+    return transcribe_problem(template) if kind == "transcript" else template_problem(template)
 
 
 def _split(template: Command) -> list[str]:
@@ -59,18 +60,33 @@ def _split(template: Command) -> list[str]:
     return [str(a) for a in template]
 
 
-def template_problem(template: Command) -> str | None:
+def job_command(cfg: Config) -> tuple[Command, str]:
+    """The command a run here uses and the kind of SRT it writes: `transcribe_cmd`
+    (a plain transcript) when it is set, else `subplz_cmd`."""
+    if cfg.transcribe_cmd:
+        return cfg.transcribe_cmd, "transcript"
+    return cfg.subplz_cmd, "synced"
+
+
+def template_problem(template: Command, name: str = "subplz_cmd",
+                     needs: tuple[str, ...] = ("{audio}", "{text}")) -> str | None:
     if not template:
-        return "subplz_cmd is not set in the config ([alignment] subplz_cmd)"
+        return f"{name} is not set in the config ([alignment] {name})"
     try:
         argv = _split(template)
     except ValueError as exc:
-        return f"subplz_cmd is not a valid command: {exc}"
+        return f"{name} is not a valid command: {exc}"
     if not argv:
-        return "subplz_cmd is empty"
-    if not any("{audio}" in a for a in argv) or not any("{text}" in a for a in argv):
-        return "subplz_cmd must contain {audio} and {text}"
+        return f"{name} is empty"
+    if not all(any(token in a for a in argv) for token in needs):
+        return f"{name} must contain {' and '.join(needs)}"
     return None
+
+
+def transcribe_problem(template: Command) -> str | None:
+    """`template_problem` for `transcribe_cmd`, which is given no text: SubPlz `gen`
+    writes what it hears, `{out}` is where."""
+    return template_problem(template, "transcribe_cmd", ("{audio}", "{out}"))
 
 
 def _argv(template: Command, audio: Path, text: Path, out: Path) -> list[str]:
@@ -83,12 +99,14 @@ def _argv(template: Command, audio: Path, text: Path, out: Path) -> list[str]:
     return argv
 
 
-def out_dir(work: Path, i: int) -> Path:
-    """Where file `i`'s finished SRT(s) are kept in a work dir."""
-    return work / f"out-{i:03d}"
+def out_dir(work: Path, i: int, kind: str = "synced") -> Path:
+    """Where file `i`'s finished SRT(s) are kept in a work dir. A transcript has its
+    own folder (`tx-NNN`), so a run never takes `sync` output for one or the other way round."""
+    return work / f"{'tx' if kind == 'transcript' else 'out'}-{i:03d}"
 
 
 def transcribe(template: Command, audio: Path, text: Path, work: Path, i: int, *,
+               kind: str = "synced",
                on_start: Callable[[subprocess.Popen], None] | None = None,
                on_end: Callable[[], None] | None = None,
                cancelled: Callable[[], bool] | None = None) -> Path:
@@ -100,8 +118,8 @@ def transcribe(template: Command, audio: Path, text: Path, work: Path, i: int, *
     command ends. Ctrl-C (or anything else that unwinds the wait) stops the
     command's process group before it propagates. Raises RuntimeError with the
     tail of the command's output, or JobCancelled."""
-    done = out_dir(work, i)
-    scratch = work / f"out-{i:03d}.partial"
+    done = out_dir(work, i, kind)
+    scratch = done.with_name(done.name + ".partial")
     shutil.rmtree(scratch, ignore_errors=True)
     scratch.mkdir(parents=True)
     log = work / "run.log"
@@ -231,6 +249,7 @@ class AlignJobs:
         problem = command_problem(cfg)
         if problem:
             raise RuntimeError(problem)
+        template, kind = job_command(cfg)
         work = align.work_dir(cfg, book_id)
         work.mkdir(parents=True, exist_ok=True)
 
@@ -241,15 +260,15 @@ class AlignJobs:
         srts: dict[str | None, str] = {}
         for i, (part, path) in enumerate(audio):
             self._check_cancelled(book_id)
-            done = out_dir(work, i)
+            done = out_dir(work, i, kind)
             if not any(done.glob("*.srt")):
                 self._set(book_id, step=f"{i + 1}/{len(audio)} {part or path.name}")
-                transcribe(cfg.subplz_cmd, path, text, work, i, on_start=self._started(book_id),
+                transcribe(template, path, text, work, i, kind=kind, on_start=self._started(book_id),
                            on_end=self._ended, cancelled=lambda: self._is_cancelled(book_id))
             srts[part] = read_srt(done, path)
         self._check_cancelled(book_id)
         self._set(book_id, step="matching")
-        align.ingest_parts(cfg, book, job["ab_id"], job["files"], srts)
+        align.ingest_parts(cfg, book, job["ab_id"], job["files"], srts, kind)
         shutil.rmtree(work, ignore_errors=True)
 
     def _is_cancelled(self, book_id: str) -> bool:

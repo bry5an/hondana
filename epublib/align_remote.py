@@ -42,6 +42,7 @@ CACHE_ROOT = Path("~/.cache/hondana/align").expanduser()
 #   server = "http://my-server.local"
 #   token = "hnd_..."          # only if the server has an admin password (Settings › Script tokens)
 #   [alignment]
+#   transcribe_cmd = "subplz gen --audio {audio} --output-dir {out} ..."   (preferred)
 #   subplz_cmd = "subplz sync --audio {audio} --text {text} --output-dir {out} ..."
 #   (or an array of arguments: ["C:\\Tools\\subplz.exe", "sync", "--audio", "{audio}", ...])
 USER_CONFIG = Path("~/.config/hondana/align.toml").expanduser()
@@ -54,8 +55,8 @@ class RemoteError(Exception):
 
 
 def user_settings(path: Path | None = None) -> dict[str, str | list[str]]:
-    """`server` and `subplz_cmd` from USER_CONFIG, leaving out what it doesn't set
-    ({} when there is no such file). A file that isn't TOML is a RemoteError."""
+    """`server`, `transcribe_cmd` and `subplz_cmd` from USER_CONFIG, leaving out what
+    it doesn't set ({} when there is no such file). A file that isn't TOML is a RemoteError."""
     path = path or USER_CONFIG
     if not path.is_file():
         return {}
@@ -65,11 +66,13 @@ def user_settings(path: Path | None = None) -> dict[str, str | list[str]]:
         raise RemoteError(f"{path} isn't valid TOML: {exc}") from exc
     found: dict[str, str | list[str]] = {
         k: str(raw[k]).strip() for k in ("server", "token") if str(raw.get(k) or "").strip()}
-    cmd = raw.get("alignment", {}).get("subplz_cmd")
-    if isinstance(cmd, list) and cmd:  # an argv array, as in the server's config
-        found["subplz_cmd"] = [str(a) for a in cmd]
-    elif cmd and str(cmd).strip():
-        found["subplz_cmd"] = str(cmd).strip()
+    section = raw.get("alignment", {})
+    for name in ("subplz_cmd", "transcribe_cmd"):
+        cmd = section.get(name)
+        if isinstance(cmd, list) and cmd:  # an argv array, as in the server's config
+            found[name] = [str(a) for a in cmd]
+        elif cmd and str(cmd).strip():
+            found[name] = str(cmd).strip()
     return found
 
 
@@ -243,11 +246,13 @@ class Server:
             os.replace(part, dest)
             return
 
-    def upload(self, book_id: str, srts: list[tuple[str | None, str]], sha: str) -> dict:
+    def upload(self, book_id: str, srts: list[tuple[str | None, str]], sha: str, kind: str = "synced") -> dict:
         """All the SRTs in one request: the server stores them together or not at all."""
         files = [("file", (f"{part or 'book'}.srt", text.encode("utf-8"), "application/x-subrip"))
                  for part, text in srts]
         data = [("part", part) for part, _ in srts if part]
+        if kind != "synced":  # an older server reads only file and part
+            data.append(("kind", kind))
         r = self._send("POST", f"/api/books/{book_id}/alignment", files=files, data=data,
                        headers={"X-Book-Sha256": sha}, timeout=(10, 600))
         if r.status_code != 200:
@@ -359,21 +364,29 @@ def work_dir(server: Server, book_id: str, root: Path | None = None) -> Path:
     return (root or CACHE_ROOT) / server.host / book_id
 
 
-def align_book(server: Server, plan: Plan, subplz_cmd: align_jobs.Command, *, force: bool = False,
+def align_book(server: Server, plan: Plan, subplz_cmd: align_jobs.Command, *, kind: str = "synced",
+               force: bool = False,
                keep_audio: bool = False, root: Path | None = None,
                log: Callable[[str], None] = print) -> Result:
-    """Take one book from the server to an uploaded alignment. Raises RemoteError
-    (or whatever interrupts it: the work dir is kept for a retry)."""
+    """Take one book from the server to an uploaded alignment. `subplz_cmd` is the
+    command for `kind`: `transcript` (SubPlz `gen`) or `synced` (SubPlz
+    `sync`). Raises RemoteError (or whatever interrupts it: the work dir is kept
+    for a retry)."""
     book, started = plan.book, time.time()
     book_id = book["book_id"]
     result = Result(book_id, plan.title)
     align = server.status(book_id).get("alignment") or {}
-    if align.get("state") == "ready" and not force:
+    # A book aligned from SubPlz sync is redone by a transcript: that is the point of one.
+    done = align.get("state") == "ready" and (kind != "transcript" or align.get("source") == "transcript")
+    if done and not force:
         result.skipped = f"already aligned (coverage {align.get('coverage')}); --force to redo it"
         return result
     if align.get("state") in ("queued", "running"):
         raise RemoteError("the server is already aligning this book")
-    problem = align_jobs.template_problem(subplz_cmd)
+    if kind == "transcript" and "transcript" not in align.get("accepts", []):
+        raise RemoteError(f"{server.base} doesn't take transcripts yet (it would store this as synced); "
+                          "update the server first")
+    problem = (align_jobs.transcribe_problem if kind == "transcript" else align_jobs.template_problem)(subplz_cmd)
     if problem:
         raise RemoteError(problem)
 
@@ -383,14 +396,14 @@ def align_book(server: Server, plan: Plan, subplz_cmd: align_jobs.Command, *, fo
     sha_file, text_file = work / "text.sha", work / "book.txt"
     if sha_file.exists() and sha_file.read_text().strip() != sha:
         log("The EPUB changed on the server since the last run; discarding the old transcripts.")
-        for d in work.glob("out-*"):
+        for d in work.glob("out-*"):  # sync output is made from the text; a transcript is not
             shutil.rmtree(d, ignore_errors=True)
     text_file.write_text(text, encoding="utf-8")
     sha_file.write_text(sha)
 
     for i, name in enumerate(plan.names):
         tag = f"{i + 1}/{len(plan.names)} {name}"
-        done = align_jobs.out_dir(work, i)
+        done = align_jobs.out_dir(work, i, kind)
         if any(done.glob("*.srt")):
             log(f"{tag}: transcript kept from an earlier run")
             continue
@@ -405,19 +418,19 @@ def align_book(server: Server, plan: Plan, subplz_cmd: align_jobs.Command, *, fo
         log(f"{tag}: transcribing")
         t0 = time.time()
         try:
-            align_jobs.transcribe(subplz_cmd, path, text_file, work, i)
+            align_jobs.transcribe(subplz_cmd, path, text_file, work, i, kind=kind)
         except RuntimeError as exc:
             raise RemoteError(str(exc)) from exc
         log(f"{tag}: done in {human_time(time.time() - t0)}")
 
-    srts = [(name if plan.parts else None, align_jobs.read_srt(align_jobs.out_dir(work, i), Path(name)))
+    srts = [(name if plan.parts else None, align_jobs.read_srt(align_jobs.out_dir(work, i, kind), Path(name)))
             for i, name in enumerate(plan.names)]
-    log(f"Uploading {len(srts)} SRT{'s' * (len(srts) != 1)}…")
-    result.response = server.upload(book_id, srts, sha)
+    log(f"Uploading {len(srts)} {'transcript' if kind == 'transcript' else 'SRT'}{'s' * (len(srts) != 1)}…")
+    result.response = server.upload(book_id, srts, sha, kind)
     result.seconds = time.time() - started
     if result.response.get("ok"):  # a poor match keeps its transcripts to look at
         if keep_audio:
-            for d in work.glob("out-*"):
+            for d in [*work.glob("out-*"), *work.glob("tx-*")]:
                 shutil.rmtree(d, ignore_errors=True)
         else:
             shutil.rmtree(work, ignore_errors=True)

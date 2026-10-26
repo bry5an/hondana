@@ -17,6 +17,7 @@ Usage: hondana <command> [--config PATH]   (or `uv run cli.py …` from a checko
     consolidate [--execute]   unify audiobook dirs (dry-run default)
     recover-moves   re-attach curated state orphaned by moving a file between folders
     gc [--apply]    report (and with --apply remove) data left behind by books no longer in the library
+    align-audit [book_id …]   check alignment maps against their audio for gaps the narrator talks through (runs ffmpeg)
     align-remote <book>|--missing   align a server's audiobook on this machine's GPU (SubPlz) and upload the SRT
 
 Each stage is resume-safe; re-running only does the new/changed work.
@@ -30,7 +31,9 @@ import sys
 import time
 from pathlib import Path
 
+from epublib import align as align_mod
 from epublib import align_remote as align_remote_mod
+from epublib import annotate as annotate_mod
 from epublib import audiobook_scanner as audiobook_scanner_mod
 from epublib import build as build_mod
 from epublib import config as config_mod
@@ -118,8 +121,36 @@ def cmd_gc(args):
     orphans_mod.run(cfg, library, do_apply=args.apply)
 
 
+def cmd_align_audit(args):
+    """Check alignment maps against their audio for gaps the narrator talks through."""
+    cfg = _cfg(args)
+    library = load_json(cfg.library_index, {})
+    ids = args.book or [b for b in library if align_mod.map_path(cfg, b).exists()
+                        or align_mod.source_kind(cfg, b, None)]
+    worst = 0
+    for book_id in ids:
+        book = library.get(book_id)
+        if not book:
+            print(f"{book_id}: not in the library", file=sys.stderr)
+            continue
+        try:
+            m = align_mod.audit(cfg, book)
+        except (RuntimeError, align_mod.AlignError, annotate_mod.NoPack) as exc:
+            print(f"{book_id}: {exc}", file=sys.stderr)
+            continue
+        if m is None:
+            print(f"{book_id}  {book.get('title')}: no alignment, or its audiobook isn't on this machine")
+            continue
+        q = m["quality"]
+        worst = max(worst, q["speech_gaps"])
+        print(f"{book_id}  {book.get('title')}: {m['source']}, coverage {m['coverage']:.1%}, "
+              f"{q['speech_gaps']} gaps with speech ({q['speech_gap_s'] / 60:.1f} min)")
+    return 1 if worst >= args.fail_at else 0
+
+
 def cmd_align_remote(args):
-    """Fetch a server book's text and audio, run this machine's `subplz_cmd`, upload the SRTs."""
+    """Fetch a server book's text and audio, run this machine's `transcribe_cmd` (or
+    `subplz_cmd`), upload the SRTs."""
     ar = align_remote_mod
     if bool(args.book) == bool(args.missing):
         print("error: give a book (book_id or title) or --missing", file=sys.stderr)
@@ -134,7 +165,14 @@ def cmd_align_remote(args):
     except ar.RemoteError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
-    cmd = mine.get("subplz_cmd") or config_mod.load(args.config).subplz_cmd
+    if mine.get("transcribe_cmd") or mine.get("subplz_cmd"):
+        tx_cmd, sync_cmd = mine.get("transcribe_cmd", ""), mine.get("subplz_cmd", "")
+    else:
+        fallback = config_mod.load(args.config)
+        tx_cmd, sync_cmd = fallback.transcribe_cmd, fallback.subplz_cmd
+    # A transcript is what fixes drift, so it is the default once there is a command for it.
+    kind = args.kind or ("transcript" if tx_cmd else "synced")
+    cmd = tx_cmd if kind == "transcript" else sync_cmd
     audio = [Path(a).expanduser() for a in args.audio]
     audio_dir = Path(args.audio_dir).expanduser() if args.audio_dir else None
 
@@ -184,7 +222,7 @@ def cmd_align_remote(args):
         for n, p in enumerate(plans, 1):
             print(f"\n[{n}/{len(plans)}] {p.title}")
             try:
-                r = ar.align_book(server, p, cmd, force=args.force, keep_audio=args.keep_audio)
+                r = ar.align_book(server, p, cmd, kind=kind, force=args.force, keep_audio=args.keep_audio)
             except ar.RemoteError as exc:
                 failed += 1
                 print(f"error: {exc}", file=sys.stderr)
@@ -195,8 +233,10 @@ def cmd_align_remote(args):
                 print(r.skipped)
                 continue
             m = r.response
+            guessed = f", {m['estimated']} estimated" if m.get("estimated") else ""
             print(f"{'aligned' if m['ok'] else 'POOR MATCH'}: coverage {m['coverage']:.1%} "
-                  f"({m['matched']}/{m['total']} sentences) in {ar.human_time(r.seconds)}")
+                  f"({m['matched']}/{m['total']} sentences heard{guessed}; "
+                  f"{m.get('source', 'synced')}) in {ar.human_time(r.seconds)}")
             if not m["ok"]:
                 failed += 1
                 print("The server stored it but below the 90% the reader needs to highlight; "
@@ -378,9 +418,18 @@ def main(argv=None):
     )
     p_gc.set_defaults(func=cmd_gc)
 
+    p_aa = sub.add_parser(
+        "align-audit",
+        help="Check alignment maps against their audio for gaps the narrator talks through (runs ffmpeg)",
+    )
+    p_aa.add_argument("book", nargs="*", help="book_ids (default: every book with an alignment)")
+    p_aa.add_argument("--fail-at", type=int, default=10, metavar="N",
+                      help="exit non-zero when a book has N or more such gaps (default 10)")
+    p_aa.set_defaults(func=cmd_align_audit)
+
     p_ar = sub.add_parser(
         "align-remote",
-        help="Align a server's audiobook here: fetch its text and audio, run subplz_cmd, upload the SRT",
+        help="Align a server's audiobook here: fetch its text and audio, transcribe it, upload the SRT",
     )
     p_ar.add_argument("book", nargs="?", help="a book_id on the server, or a title substring")
     p_ar.add_argument("--token", default=None,
@@ -394,6 +443,10 @@ def main(argv=None):
     p_ar.add_argument("--run", action="store_true", help="with --missing: align them one after another")
     p_ar.add_argument("--dry-run", action="store_true", help="print the plan; start nothing")
     p_ar.add_argument("--force", action="store_true", help="redo a book that is already aligned")
+    p_ar.add_argument("--kind", choices=("transcript", "synced"), default=None,
+                      help="transcript: run transcribe_cmd (SubPlz gen) and upload what was heard; "
+                      "synced: run subplz_cmd (SubPlz sync). Default: transcript when transcribe_cmd is set. "
+                      "A book aligned from synced is redone by a transcript without --force")
     p_ar.add_argument("--audio", action="append", default=[], metavar="PATH",
                       help="use this copy of an audio file instead of downloading it "
                       "(matched by file name; repeatable)")

@@ -70,7 +70,7 @@ def rekey_book(cfg: Config, old: str, new: str) -> list[str]:
             touched.append(f"covers/custom/{dst.name}")
     # The alignment SRTs follow too; the map is derived and is re-matched
     # from them on the next request, so it is left for purge to drop.
-    for src in cfg.alignments_dir.glob(f"{old}.*srt"):
+    for src in [*cfg.alignments_dir.glob(f"{old}.*srt"), *cfg.alignments_dir.glob(f"{old}.anchors.jsonl")]:
         dst = src.with_name(new + src.name[len(old):])
         if not dst.exists():
             src.rename(dst)
