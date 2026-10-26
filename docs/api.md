@@ -75,7 +75,7 @@ the result on the page. These routes exist for it:
 | `GET /api/connect`, `GET /api/connect/qr.svg` | How a phone connects: `{url, profile, link, lan_substituted}`, where `url` is this request's own `Host` (a `localhost` host becomes the machine's LAN address), and `link` is `hondana://connect?server=…&profile=…`; the second route is `link` as a QR code (SVG). Shown on **Profile**. |
 | `GET /api/reader/books/{id}/pack` | The book's **annotation pack**: every token's position (UTF-16 offsets into each spine document's text), its dictionary form, reading and furigana, and the sentence spans. Gzip, with an ETag. 409 `{reason: drm\|not_ja\|no_text}` when there can't be one. |
 | `GET /api/reader/vocab` | The profile's known, learning and ignored words plus exposure counts, which colour the words (ETag). |
-| `POST /api/reader/events` | The phone's outbox: word status changes, lookups and reading positions, replayed in batches of up to 1000. Idempotent. |
+| `POST /api/reader/events` | The phone's outbox: word status changes, lookups, reading and listening positions, bookmarks (`bookmark`: `put` or `delete`, per profile) and sync fixes (`sync_anchor`), replayed in batches of up to 1000. Idempotent. **A `sync_anchor` is shared:** it corrects the book's audio sync map for every profile, and like the rest of `/api/reader/` it stays open when an admin password is set (the phone carries no token), so any device that can reach the server can send one. An id an audiobook has since left (it gained a key) is read as the one it went to. |
 | `GET /api/reader/progress` | The profile's reading positions, by the book's stable key (`progress`), where it is in each audiobook, by `ab_id` (`audio`), and its bookmarks, by id (`bookmarks`; a deleted one is `{deleted: true, updated_at}` for 90 days). |
 | `GET /api/reader/dicts`, `GET /api/reader/dicts/{file}` | The Yomitan dictionary zips in `dicts_dir`, with a manifest. |
 | `POST /api/admin/dicts`, `DELETE /api/admin/dicts/{file}` | Add a Yomitan zip (multipart `file`, up to 1 GB; 400 unless it is a `.zip` with an `index.json`; a zip of the same name is replaced) or delete one from the manifest. Behind the Admin page's Dictionaries card. |
@@ -92,8 +92,9 @@ The pack format, the vocab snapshot and the event rules are specified in `CLAUDE
 removes only that kind), `POST`/`DELETE /api/books/{id}/alignment/generate` and
 `GET /api/reader/books/{id}/alignment.srt` (`?kind=`).
 `GET /api/books/{id}/status` carries `alignment: {state, coverage, ok, step, error, eligible, can_generate,
-source, estimated, accepts}`: `eligible` is a Japanese book whose audiobook is on the server,
+source, estimated, anchors, speech_gaps, speech_gap_s, accepts}`: `eligible` is a Japanese book whose audiobook is on the server,
 `can_generate` that `transcribe_cmd` or `subplz_cmd` can run there; the book page's Audio sync card reads
-both. `source` is what the map is made from (`transcript` or `synced`), `accepts` the kinds an upload may be. `GET /api/admin/alignment-queue` lists the eligible books
+both. `source` is what the map is made from (`transcript` or `synced`), `anchors` how many listener fixes are in it,
+`speech_gaps`/`speech_gap_s` what `hondana align-audit` found (null until it has run), `accepts` the kinds an upload may be. `GET /api/admin/alignment-queue` lists the eligible books
 with no sync yet (`{books: [{book_id, title, author, runtime_min, files}], total_min, can_generate}`), which
 Admin shows. See [audio-sync.md](audio-sync.md).

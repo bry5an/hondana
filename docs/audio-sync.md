@@ -198,9 +198,13 @@ Coverage only says how many sentences got a time, not whether the times are righ
 run this on the server (it needs the audio, and takes a minute or two of ffmpeg per book):
 
 ```bash
-uv run cli.py align-audit            # every synced book
+uv run cli.py align-audit            # every book with an alignment
 uv run cli.py align-audit <book_id>  # one
 ```
+
+It needs [ffmpeg](https://ffmpeg.org/) on the machine you run it on. Hondana doesn't ship it (the
+Docker image and the desktop app leave it out) and nothing else uses it: without it the command says
+so and stops, and a map just has no check results until the audio has been listened to.
 
 It finds the gaps of five seconds or more between two sentences of a chapter where the narrator is
 talking. A good map has few and short ones; a map that lost the voice has dozens. The book page's
@@ -214,6 +218,10 @@ sentences around it until the map agrees again; it also sends the fix to the ser
 for the book and its audiobook (`data/alignments/<book_id>.anchors.jsonl`, for everyone using the
 server) and builds it into the map, so every device gets it. `GET /api/books/<book_id>/status`
 counts them in `alignment.anchors`.
+
+Because the fix is shared and the phone carries no token, the server takes it from any device that can
+reach it, even when an admin password is set; keep the server on a network you trust. A wrong fix is
+withdrawn by sending another for that line (`op: clear`), or by removing the alignment from the book's page.
 
 ### Squeezed stretches (synced SRTs)
 

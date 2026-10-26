@@ -14,6 +14,12 @@ reader API stay open, so a household and their phones work as before.
 - **Cross-site writes**: an unsafe request whose `Origin` isn't this server is
   refused whether or not a password is set, so a web page elsewhere can't drive
   the open writes either. No `Origin` (the phone, curl) passes.
+- **One open write is shared by everyone**: a `sync_anchor` event in
+  `POST /api/reader/events` is a listener's fix to a book's audio sync map, kept per
+  book and not per profile, so any device that can reach the server can move the sync
+  points every profile gets, even with a password set. It stays open because the phone
+  carries no token; a wrong fix is withdrawn with another event (`op: clear`) or by
+  removing the alignment on the book's page (admin).
 
 Shell access is the recovery path: `hondana admin-password clear`.
 """
