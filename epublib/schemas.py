@@ -277,15 +277,16 @@ class AudioProgressEvent(_ReaderEvent):
 
 
 class SyncAnchorEvent(_ReaderEvent):
-    """A listener's fix of the audio sync: sentence `sentence` of the pack's
+    """A listener's fix of the audio sync: sentence `sent` of the pack's
     section `doc` starts `ms` into `part` (the mp3 of a folder; null for an m4b). `op: clear` withdraws
-    it. Fixes are kept per book and audiobook, not per profile: the audio is the same for everyone."""
+    it. Fixes are kept per book and audiobook, not per profile: the audio is the same for everyone.
+    `sent`, not `sentence`: the phone's outbox already sends a lookup's `sentence` as text."""
     type: Literal["sync_anchor"]
     book_id: str = Field(min_length=1)
     ab_id: str = Field(min_length=1)
     sha256: str = ""
     doc: int = Field(ge=0)
-    sentence: int = Field(ge=0)
+    sent: int = Field(ge=0)
     part: str | None = None
     ms: int = Field(default=0, ge=0)
     op: Literal["set", "clear"] = "set"

@@ -611,7 +611,7 @@ def test_a_fix_where_the_map_is_right_changes_nothing():
 def _fix(client, *, ms=240_000, op="set", ab="B0AUDIO001", sentence=12, eid="f1", ts=1000):
     return client.post("/api/reader/events", json={"events": [{
         "id": eid, "ts": ts, "type": "sync_anchor", "book_id": "b1", "ab_id": ab,
-        "doc": 0, "sentence": sentence, "part": None, "ms": ms, "op": op}]}).json()
+        "doc": 0, "sent": sentence, "part": None, "ms": ms, "op": op}]}).json()
 
 
 def test_a_fix_from_the_phone_reaches_the_map_and_its_etag(client):
@@ -622,7 +622,7 @@ def test_a_fix_from_the_phone_reaches_the_map_and_its_etag(client):
     doc = body["docs"][0]["index"]
     r = client.post("/api/reader/events", json={"events": [{
         "id": "f1", "ts": 1000, "type": "sync_anchor", "book_id": "b1", "ab_id": "B0AUDIO001",
-        "doc": doc, "sentence": 12, "part": None, "ms": 50_000}]}).json()
+        "doc": doc, "sent": 12, "part": None, "ms": 50_000}]}).json()
     assert r["rejected"] == []
     again = client.get("/api/reader/books/b1/alignment", headers={"If-None-Match": first.headers["etag"]})
     assert again.status_code == 200 and again.headers["etag"] != first.headers["etag"]
@@ -631,7 +631,7 @@ def test_a_fix_from_the_phone_reaches_the_map_and_its_etag(client):
     assert client.get("/api/books/b1/status").json()["alignment"]["anchors"] == 1
     client.post("/api/reader/events", json={"events": [{
         "id": "f2", "ts": 1001, "type": "sync_anchor", "book_id": "b1", "ab_id": "B0AUDIO001",
-        "doc": doc, "sentence": 12, "ms": 0, "op": "clear"}]})
+        "doc": doc, "sent": 12, "ms": 0, "op": "clear"}]})
     assert client.get("/api/reader/books/b1/alignment").json()["docs"][0]["sents"][12] == [48000, 52000]
 
 
@@ -640,14 +640,14 @@ def test_a_fix_for_another_audiobook_or_book_is_refused(client):
     assert _fix(client, ab="B0OTHER0002")["rejected"] == [{"id": "f1", "reason": "audiobook_changed"}]
     r = client.post("/api/reader/events", json={"events": [{
         "id": "f3", "ts": 1, "type": "sync_anchor", "book_id": "nope", "ab_id": "B0AUDIO001", "doc": 0,
-        "sentence": 0, "ms": 0}]}).json()
+        "sent": 0, "ms": 0}]}).json()
     assert r["rejected"] == [{"id": "f3", "reason": "no_book"}]
 
 
 def test_fixes_are_kept_like_the_srt(cfg):
     book = _book(cfg)
     align.ingest(cfg, book, "B0AUDIO001", None, srt_for(SENTENCES))
-    align.add_anchors(cfg, "b1", "B0AUDIO001", [{"ts": 1, "doc": 0, "sentence": 3, "part": None, "ms": 10}])
+    align.add_anchors(cfg, "b1", "B0AUDIO001", [{"ts": 1, "doc": 0, "sent": 3, "part": None, "ms": 10}])
     purge.purge_book(cfg, "b1")
     assert align.anchors_path(cfg, "b1").exists()
     rekey.rekey_book(cfg, "b1", "b2")

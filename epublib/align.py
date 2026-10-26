@@ -649,8 +649,8 @@ def anchors_path(cfg: Config, book_id: str) -> Path:
 
 
 def add_anchors(cfg: Config, book_id: str, ab_id: str, events: list[dict], who: str | None = None) -> None:
-    """Appends fixes (`sync_anchor` events: doc, sentence, part, ms, op, ts) for the book's audiobook."""
-    lines = "".join(json.dumps({"ts": e["ts"], "ab_id": ab_id, "doc": e["doc"], "sentence": e["sentence"],
+    """Appends fixes (`sync_anchor` events: doc, sent, part, ms, op, ts) for the book's audiobook."""
+    lines = "".join(json.dumps({"ts": e["ts"], "ab_id": ab_id, "doc": e["doc"], "sentence": e["sent"],
                                 "part": e.get("part"), "ms": e["ms"], "op": e.get("op", "set"), "by": who},
                                ensure_ascii=False) + "\n" for e in events)
     path = anchors_path(cfg, book_id)
