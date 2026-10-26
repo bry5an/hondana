@@ -31,6 +31,7 @@ import requests as req_lib
 from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
+from starlette.requests import ClientDisconnect
 from starlette.responses import Response
 from starlette.types import Scope
 
@@ -52,6 +53,7 @@ from . import custom_cover as custom_cover_mod
 from . import dicts as dicts_mod
 from . import discovery as discovery_mod
 from . import incoming as incoming_mod
+from . import intake as intake_mod
 from . import known as known_mod
 from . import orphans as orphans_mod
 from . import pairing as pairing_mod
@@ -67,6 +69,7 @@ from . import search_index as search_index_mod
 from . import study as study_mod
 from . import textnorm
 from . import thumbs as thumbs_mod
+from . import uploads as uploads_mod
 from .compress import TextGZipMiddleware
 from .config import ROOT, Config
 from .config import load as load_config
@@ -93,9 +96,22 @@ def _prewarm_known_review() -> None:
     threading.Thread(target=run, name="known-prewarm", daemon=True).start()
 
 
+def _sweep_uploads() -> None:
+    """Clear audiobook uploads nobody touched for a week, so a crash or an abandoned tab
+    can't fill the library's drive. In a thread: the folder may be on a slow share."""
+    def run() -> None:
+        try:
+            uploads_mod.sweep(cfg)
+        except Exception:
+            traceback.print_exc()
+
+    threading.Thread(target=run, name="uploads-sweep", daemon=True).start()
+
+
 @asynccontextmanager
 async def _lifespan(_app: FastAPI):
     _prewarm_known_review()
+    _sweep_uploads()
     advertiser = discovery_mod.Advertiser()
     await advertiser.start(cfg)
     try:
@@ -1917,6 +1933,124 @@ async def reset_audiobook_cover(ab_id: str) -> JSONResponse:
     return JSONResponse(await asyncio.to_thread(_run))
 
 
+# ── Audiobook uploads ────────────────────────────────────────────────────────
+# A file is sent as sequential PUT chunks, so a dropped connection resumes where it stopped
+# (uploads.py); once every byte is in, POST …/complete hands it to the intake queue, which
+# files it and indexes it in the background (intake.py). The bytes go to staging inside the
+# audiobook folder, so receiving takes no lock; only the indexing takes _index_lock.
+
+def _upload_error(exc: uploads_mod.UploadError) -> JSONResponse:
+    return JSONResponse(status_code=exc.status,
+                        content={"detail": str(exc), "reason": exc.code, **exc.extra})
+
+
+def _upload_state(upload_id: str) -> dict:
+    """The upload as a client sees it: what was announced, where it stands and, once it is
+    queued, how the filing is going. A finished or failed upload has no files left (staging is
+    cleared), so its state is the filing job's, held in memory."""
+    job = _intake_jobs.status(upload_id)
+    try:
+        info = uploads_mod.get(cfg, upload_id)
+    except uploads_mod.UploadError:
+        if job is None:
+            raise
+        info = {"id": upload_id, "offset": 0}
+    if job:
+        # The part file is renamed away while it is filed; every byte had arrived.
+        return {**info, "offset": info.get("size", 0), "state": job["state"], "step": job["step"],
+                "error": job["error"], "reason": job["reason"], "result": job["result"]}
+    state = "received" if info["offset"] >= info["size"] else "receiving"
+    return {**info, "state": state}
+
+
+async def _drain(stream) -> None:
+    """Read and drop what is left of a refused chunk's body, so the connection answers cleanly
+    instead of being reset under a client that is still sending. Takes the very iterator the
+    route was reading: Starlette lets a request's body be streamed only once."""
+    seen = 0
+    try:
+        async for data in stream:
+            seen += len(data)
+            if seen > uploads_mod.MAX_CHUNK:
+                break
+    except ClientDisconnect:
+        pass
+
+
+@app.post("/api/audiobooks/uploads", response_model=schemas.AudioUploadState, status_code=201)
+async def create_audiobook_upload(payload: schemas.AudioUploadRequest) -> JSONResponse:
+    """Announce a file; the answer says where to start (`offset` 0) and how big a chunk to send."""
+    try:
+        info = await asyncio.to_thread(uploads_mod.create, cfg, payload.filename, payload.size)
+        return JSONResponse(status_code=201, content=_upload_state(info["id"]))
+    except uploads_mod.UploadError as exc:
+        return _upload_error(exc)
+
+
+@app.get("/api/audiobooks/uploads/{upload_id}", response_model=schemas.AudioUploadState)
+async def get_audiobook_upload(upload_id: str) -> JSONResponse:
+    """Where the upload stands: `offset` is where a client that lost its place resumes."""
+    try:
+        return JSONResponse(await asyncio.to_thread(_upload_state, upload_id))
+    except uploads_mod.UploadError as exc:
+        return _upload_error(exc)
+
+
+@app.put("/api/audiobooks/uploads/{upload_id}", response_model=schemas.AudioUploadState)
+async def put_audiobook_chunk(upload_id: str, request: Request) -> JSONResponse:
+    """One chunk, `Content-Range: bytes START-END/TOTAL`, raw body. It has to start at the
+    upload's `offset` (409 with the real one otherwise). Bytes are kept as they arrive, so a
+    dropped connection costs only what hadn't arrived, and the newest request for an upload
+    takes over from an older one that stalled."""
+    body = request.stream()
+    try:
+        if _intake_jobs.status(upload_id):
+            raise uploads_mod.UploadError(409, "already_complete", "That upload is already complete")
+        start, end, total = uploads_mod.parse_content_range(request.headers.get("content-range"))
+        with uploads_mod.chunk(cfg, upload_id, start, end, total) as writer:
+            pending = bytearray()
+            async for data in body:
+                pending += data
+                if len(pending) >= 1 << 20:  # write in megabytes, off the event loop
+                    await asyncio.to_thread(writer.write, bytes(pending))
+                    pending.clear()
+            if pending:
+                await asyncio.to_thread(writer.write, bytes(pending))
+        return JSONResponse(await asyncio.to_thread(_upload_state, upload_id))
+    except uploads_mod.UploadError as exc:
+        await _drain(body)
+        return _upload_error(exc)
+    except ClientDisconnect:  # the chunk was undone; nobody is listening for an answer
+        return JSONResponse(status_code=499, content={"detail": "Client closed the request"})
+
+
+@app.post("/api/audiobooks/uploads/{upload_id}/complete", response_model=schemas.AudioUploadState,
+          status_code=202)
+async def complete_audiobook_upload(upload_id: str) -> JSONResponse:
+    """Every byte is in: check it is what its name says and queue it to be filed. Poll
+    `GET …/{id}` for the outcome. Idempotent: asking again returns the job's state."""
+    try:
+        if _intake_jobs.status(upload_id) is None:
+            await asyncio.to_thread(uploads_mod.check_complete, cfg, upload_id)
+        _intake_jobs.enqueue(upload_id)
+        return JSONResponse(status_code=202, content=_upload_state(upload_id))
+    except uploads_mod.UploadError as exc:
+        return _upload_error(exc)
+
+
+@app.delete("/api/audiobooks/uploads/{upload_id}")
+async def abort_audiobook_upload(upload_id: str) -> JSONResponse:
+    """Throw away what has arrived. Refused while the file is being filed."""
+    try:
+        if _intake_jobs.active(upload_id):
+            raise uploads_mod.UploadError(409, "busy", "It is being added to the library now")
+        if not await asyncio.to_thread(uploads_mod.discard, cfg, upload_id):
+            raise uploads_mod.UploadError(404, "not_found", "No such upload")
+    except uploads_mod.UploadError as exc:
+        return _upload_error(exc)
+    return JSONResponse({"status": "ok"})
+
+
 # ── Audible search and Match ─────────────────────────────────────────────────
 # A local file the scanner can't identify is matched to an Audible book by hand
 # (audiobook_match.py): search Audible, pick the book, and the file becomes it —
@@ -2451,6 +2585,8 @@ _reader_lock = threading.Lock()
 # Per-book pipeline queue (upload/acquire/"Analyze now"); its worker takes
 # _index_lock around each job.
 _book_jobs = book_jobs_mod.BookJobs(cfg, lambda: _index_lock)
+# Filing finished audiobook uploads: the moves take no lock, the indexing takes _index_lock.
+_intake_jobs = intake_mod.IntakeJobs(cfg, lambda: _index_lock)
 # SubPlz runs: hours long, so a lane of their own that never takes _index_lock.
 _align_jobs = align_jobs_mod.AlignJobs(cfg)
 _admin_run: dict = {
