@@ -30,6 +30,7 @@ for that default profile.
 | Profiles | `GET`/`POST /api/profiles`, `POST /api/profiles/active`, `GET /api/profile/read-books`, `DELETE /api/profile/orphan-reads` |
 | Known words | `GET`/`POST`/`DELETE /api/known-words` (import: multipart `file` or `text`, `format`, `mode`), `POST …/mark` / `unmark` / `skip` / `unskip`, `GET …/frequent`, `POST …/seed`, `GET …/snapshots`, `POST …/restore` |
 | Admin | `GET /api/admin/stages`, `GET /api/admin/status`, `POST /api/admin/run/{stage}` |
+| Inbox | `GET /api/inbox` → `{enabled, dir, problem, waiting, failed, recent}`: whether the [inbox folder](audiobooks.md#the-inbox-folder) is on, what is waiting for a quiet minute, how many items sit in its `_failed/`, and what was filed or set aside lately. Admin-only once a password is set |
 
 ## Audiobook uploads
 

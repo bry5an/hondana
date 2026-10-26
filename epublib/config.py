@@ -60,6 +60,9 @@ class Config:
     # with {audio}, {text} and {out} placeholders; "" = not configured.
     subplz_cmd: str = ""
 
+    # A folder to drop new EPUBs and audiobooks into (inbox.py); None = no inbox.
+    inbox_dir: Path | None = None
+
     # Bonjour advertisement of the server for the iOS app (discovery.py).
     # `discovery_advertise_port` is the port to announce when the app sits behind a
     # proxy (host 127.0.0.1); None = the bind port, and no advert on a loopback bind.

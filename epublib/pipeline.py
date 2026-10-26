@@ -1,6 +1,6 @@
 """The pipeline's one definition.
 
-    scan → analyze → enrich → pair → audio-scan → catalog → xref → build → epub-catalog
+    inbox → scan → analyze → enrich → pair → audio-scan → catalog → xref → build → epub-catalog
 
 `STAGES` is the ordered registry; `cli.py` (one subcommand per stage, plus `all`) and
 the `/admin` panel (buttons, tooltips, the "all" run) are both generated from it, so
@@ -47,6 +47,19 @@ class Stage:
     in_chain: bool = True            # False: a standalone action, not a step of the pipeline
     group: str = "index"             # /admin section: index | audiobooks | finish | maintenance
     chips: tuple[str, ...] = ()      # /admin flags: what the stage touches beyond data/
+
+
+def _inbox(cfg: Config, refresh: bool = False) -> None:
+    from . import inbox as inbox_mod  # intake (which inbox uses) imports this module
+
+    report = inbox_mod.run_once(cfg)
+    # Filed into the library, so make them visible now: a full run indexes them again right
+    # after (an unchanged file is skipped), but `inbox` on its own would otherwise leave them
+    # unseen until the next scan.
+    if report.filed_epubs:
+        _scan(cfg)
+    if report.filed_audio:
+        _audio_scan(cfg)
 
 
 def _scan(cfg: Config, refresh: bool = False) -> None:
@@ -102,6 +115,14 @@ def _build(cfg: Config, refresh: bool = False) -> None:
 
 
 STAGES: tuple[Stage, ...] = (
+    Stage(
+        "inbox", "File the inbox", "File new EPUBs and audiobooks from the inbox folder",
+        "File what is in the inbox folder into your library. Moves new EPUBs and audiobooks "
+        "out of it once they have stopped changing for a minute; anything it can't file, or "
+        "already has, goes to the inbox's _failed folder with a note. Does nothing when no "
+        "inbox folder is set. It runs first so the stages after it index what it filed.",
+        _inbox,
+    ),
     Stage(
         "scan", "Scan EPUBs", "Extract OPF metadata + covers, then rebuild",
         "Update the library from your EPUB folder, then rebuild the index. Reads OPF "

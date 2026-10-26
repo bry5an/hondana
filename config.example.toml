@@ -16,6 +16,11 @@
 # `cli.py consolidate` moves everything into it. Default: ["<home>/audiobooks"]
 # audiobook_dirs = ["/path/to/Audiobooks"]
 
+# Optional: a folder to drop new EPUBs and audiobooks into. Hondana files what it
+# finds there once it has stopped changing for a minute (see docs/audiobooks.md).
+# It can't be inside the EPUB or audiobook folders. Unset = no inbox. Set it in the
+# [inbox] table below.
+
 # Folder of your own Yomitan dictionary zips (Jitendex, a monolingual dictionary,
 # Kanjium pitch, frequency lists), hosted to Hondana for iPhone. Personal and
 # often not redistributable. Default: <data_dir>/dicts
@@ -43,6 +48,9 @@ port = 8000
 # The Audible store your audiobooks are bought from: jp, us, uk, de, fr, ca, au,
 # in, it or es. Book details are looked up (by ASIN) and searched there.
 # marketplace = "jp"
+
+[inbox]
+# dir = "/path/to/Inbox"
 
 [natively]
 # Seconds between learnnatively.com requests (be polite).
