@@ -1017,8 +1017,15 @@ def ensure(cfg: Config, book: dict, ab_id: str | None, files: list[str] | None) 
         return _rebuild(cfg, book, ab_id, files, sha)
 
 
+def track_files(entry: dict) -> list[str] | None:
+    """The file names of a multi-file audiobook's index entry, in play order; None for a
+    single file. An `mp3-folder` and a `tracks` book both list them in `files`, and the stored
+    SRTs and the map's `part` are keyed by these names."""
+    return entry.get("files") or None
+
+
 def audio_files(cfg: Config, book: dict) -> tuple[str | None, list[str] | None, list[tuple[str | None, Path]]]:
-    """`(ab_id, mp3 names, [(part, path)])` of the book's linked audiobook on this machine, as the
+    """`(ab_id, track names, [(part, path)])` of the book's linked audiobook on this machine, as the
     server's routes find it; `(None, None, [])` when it isn't here."""
     link = book.get("audiobook") or {}
     ab_id = link.get("audible_isbn")
@@ -1034,7 +1041,7 @@ def audio_files(cfg: Config, book: dict) -> tuple[str | None, list[str] | None, 
     root = (base / entry["path"]).resolve()
     if base != root and base not in root.parents:
         return None, None, []
-    files = (entry.get("files") or None) if entry.get("format") == "mp3-folder" else None
+    files = track_files(entry)
     return ab_id, files, [(f, root / f) for f in files] if files else [(None, root)]
 
 

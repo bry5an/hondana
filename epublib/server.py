@@ -929,7 +929,7 @@ def _book_audiobook(book: dict) -> tuple[str | None, list[str] | None]:
     entry = _load_audiobooks().get(ab_id) if ab_id and link.get("audiobook_local") else None
     if not entry or not entry.get("local"):
         return None, None
-    return ab_id, entry.get("files") or None
+    return ab_id, align_mod.track_files(entry)
 
 
 def _book_alignment_state(book: dict) -> dict:

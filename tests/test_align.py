@@ -537,6 +537,23 @@ def test_gc_finds_orphaned_alignment_files(cfg):
     assert "alignments/" not in orphans.find(cfg, {"b1": book})
 
 
+def test_a_tracks_book_is_found_by_its_files_like_an_mp3_folder(cfg, tmp_path):
+    base = tmp_path / "audio"
+    (base / "Album").mkdir(parents=True)
+    cfg.audiobook_dirs = [base]
+    save_json(cfg.audiobook_index, {
+        "B0TRACKS01": {"ab_id": "B0TRACKS01", "local": True, "format": "tracks", "root": str(base),
+                       "path": "Album", "files": ["01.flac", "02.flac"]},
+        "B0SINGLE01": {"ab_id": "B0SINGLE01", "local": True, "format": "m4b", "root": str(base),
+                       "path": "Album/one.m4b"}})
+    tracks = align.audio_files(cfg, _book(cfg, ab="B0TRACKS01"))
+    assert tracks == ("B0TRACKS01", ["01.flac", "02.flac"],
+                      [("01.flac", (base / "Album" / "01.flac").resolve()),
+                       ("02.flac", (base / "Album" / "02.flac").resolve())])
+    ab_id, files, audio = align.audio_files(cfg, _book(cfg, ab="B0SINGLE01"))
+    assert (ab_id, files) == ("B0SINGLE01", None) and audio == [(None, (base / "Album" / "one.m4b").resolve())]
+
+
 # ── routes ───────────────────────────────────────────────────────────────────
 
 @pytest.fixture
