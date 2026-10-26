@@ -146,8 +146,9 @@ app offers to import them the first time it connects.
 - **Scattered audiobook folders.** `uv run cli.py consolidate` plans (and with `--execute`
   performs) moving them into one tidy tree.
 - **Backups.** Your corrections, profiles and known words are the only things you can't
-  rebuild. `uv run cli.py push` commits them to a private git repo. See
-  [docs/running-a-server.md](docs/running-a-server.md#backups).
+  rebuild. `uv run cli.py export` writes them (and the slow caches) to one zip, and
+  `uv run cli.py import` restores it here or on another machine; `uv run cli.py push` keeps a
+  private git mirror current. See [docs/running-a-server.md](docs/running-a-server.md#backups).
 
 To keep it running all the time (systemd, a reverse proxy, updates), see
 [docs/running-a-server.md](docs/running-a-server.md).

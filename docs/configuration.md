@@ -116,9 +116,10 @@ rebuilt, so back them up:
 - `audiobook_hidden.json`: audiobooks you removed from the catalog.
 - `audiobook_catalog_base.json` and `natively_levels.json`, if you have them. They can be only
   partly rebuilt.
-- `alignments/*.srt`: audiobook transcripts that took hours to make.
+- `alignments/*.srt` and `alignments/*.anchors.jsonl`: audiobook transcripts that took hours to make,
+  and the sync fixes made on the phone.
 
-`cli.py push` copies all of these to a private git repo (see
-[running-a-server.md](running-a-server.md#backups)).
+`cli.py push` copies all of these to a private git repo, and `cli.py export --curated` writes the same
+files to a zip (see [running-a-server.md](running-a-server.md#backups)).
 
 Developers: `CLAUDE.md` has the full table of `data/` files and which code writes each.
