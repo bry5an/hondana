@@ -92,8 +92,78 @@ Don't run it while someone is running a stage from Admin: the two would race on 
 ## Backups
 
 Most of `data/` is generated and comes back by re-running the pipeline. The hand-made part, listed
-in [configuration.md](configuration.md#files-under-data), doesn't. `cli.py push` copies it into a
-private git repo and commits:
+in [configuration.md](configuration.md#files-under-data), doesn't. There are two ways to keep it, and
+they work together: a **zip** you make whenever you like (and restore anywhere), and a **git mirror**
+that a timer keeps current. Neither includes your EPUB and audiobook folders: back those up yourself.
+
+### A zip: `export`
+
+```bash
+uv run cli.py export                       # data/backups/hondana-<date>.zip, everything
+uv run cli.py export --curated             # only your hand-made data: a few MB
+uv run cli.py export --out ~/usb/hondana.zip
+```
+
+- A **full** export is the hand-made data plus the slow-to-rebuild caches (vocabulary, reader packs,
+  covers, the audiobook id history, dictionaries), so a restore is ready to use at once. Never
+  included: the admin password and its key, locks, logs, the search index and temp files.
+- A **curated** export is exactly the files `push` mirrors. Run `uv run cli.py all` after importing it
+  to rebuild the rest.
+- The default place, `data/backups/`, is on the same disk as the data, so it doesn't survive that
+  disk: copy the zip somewhere else, or write it there with `--out`.
+- It prints what the zip holds (books, audiobook files, catalog rows, and per profile the known words,
+  books read, positions, bookmarks): keep that line to compare with after a restore.
+- It is safe to run while the server is up. Each file is consistent, but they're read one after another,
+  so stop the server first for a copy that is consistent as a whole.
+- `settings.json` is in it, because it holds your Settings-page choices, but a restore doesn't apply it
+  unless you say so (below): it names folders on the machine it came from.
+
+### Restoring and moving a library
+
+```bash
+uv run cli.py import ~/usb/hondana.zip            # a dry run: says what would happen, writes nothing
+uv run cli.py import ~/usb/hondana.zip --apply
+```
+
+The source can be a zip from `export`, a **data folder** (an old `data/` you copied, or another
+checkout's), a **checkout** that has a `data/` in it, or a **clone of your git mirror**
+(`git clone <your backup repo> ~/hondana-backup`, then `import ~/hondana-backup --apply`; that holds
+only hand-made data, so run `hondana all` afterwards).
+
+- **Stop the server first.** An import refuses while a server (or the desktop app) is running on the
+  folder, and a server refuses to start while an import is.
+- A folder that already holds your own work (known words, read marks, overrides, hand-set covers…) is
+  **refused**, so a mistake can't overwrite it. `--replace` replaces it: it first saves a full export
+  of what is there to `data/backups/before-import-<time>.zip`, then clears everything except
+  `backups/`, `logs/`, the admin password and settings. To undo, `import` that file with `--replace`.
+- Profile folders the source's `profiles.json` doesn't list (leftovers of an old registry) are left
+  out, by name.
+- `settings.json` isn't imported unless you pass `--settings`; without it the dry run and the
+  import print its values so you can set them by hand.
+- When it is done, `--rebuild index` (the default) refreshes the indexes (`audio-scan`, which also
+  upgrades an older audiobook index, then `build` and the known-words figures), `--rebuild all` runs
+  every stage (slow, and it fetches from Natively and the like), and `--rebuild none` stops there.
+  It ends by comparing every count with the source's and listing any difference.
+- A zip is checked before anything is written: every path must stay inside the folder, links are
+  refused, the zip may hold nothing its manifest doesn't list, and every file's size and sha256 must
+  match. A damaged or tampered zip is refused whole.
+
+**On a new machine:** install Hondana, put your EPUB and audiobook folders back (the same paths
+under their folders keep your read marks and corrections attached: a book's id comes from its path
+and size, and a rename is carried over by the next `scan`), set the folders in `config.toml` or on
+the Settings page, then `import … --apply`, start the server, and compare the counts.
+
+**Docker:** `docker exec hondana hondana export` writes into the data volume (`/data/backups/`). To
+restore, stop the container first, then run the import in a one-off one on the same volumes:
+`docker compose stop && docker compose run --rm hondana hondana import /data/backups/<file>.zip --apply`.
+
+**The desktop app:** quit it, then run the same commands with the console build: `hondana-cli.exe export`
+or `hondana-cli.exe import C:\path\to\hondana.zip --apply` on Windows (it sits next to `hondana.exe`),
+and `/Applications/Hondana.app/Contents/MacOS/Hondana export` on macOS.
+
+### A git mirror: `push`
+
+`cli.py push` copies your hand-made data into a private git repo and commits, which suits a timer:
 
 1. Create a **private** repo (it holds your reading history and word lists) and clone it on the
    server, e.g. `git clone git@github.com:<you>/hondana-backup.git ~/hondana-backup`. The server's
@@ -141,7 +211,8 @@ private git repo and commits:
    `uv run cli.py push` does the same job.
 
 A backup you've never restored isn't a backup: clone the repo somewhere else now and then and
-`diff` its files against `data/`. Also back up your EPUB and audiobook folders themselves.
+`diff` its files against `data/`, or [import it](#restoring-and-moving-a-library) into an empty folder
+and check the counts it prints.
 
 ## Security
 

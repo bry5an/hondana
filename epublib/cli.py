@@ -17,6 +17,9 @@ Usage: hondana <command> [--config PATH]   (or `uv run cli.py …` from a checko
     consolidate [--execute]   unify audiobook dirs (dry-run default)
     recover-moves   re-attach curated state orphaned by moving a file between folders
     gc [--apply]    report (and with --apply remove) data left behind by books no longer in the library
+    export [--out PATH] [--curated]   back up the data folder to one zip (--curated: only your hand-made data)
+    import SOURCE [--apply] [--replace] [--settings] [--rebuild index|all|none]   restore or move a data folder
+                    from a backup zip, a data folder, a checkout or a mirror clone (a dry run until --apply)
     align-audit [book_id …]   check alignment maps against their audio for gaps the narrator talks through (runs ffmpeg)
     align-remote <book>|--missing   align a server's audiobook on this machine's GPU (SubPlz) and upload the SRT
 
@@ -35,6 +38,7 @@ from epublib import align as align_mod
 from epublib import align_remote as align_remote_mod
 from epublib import annotate as annotate_mod
 from epublib import audiobook_scanner as audiobook_scanner_mod
+from epublib import backup as backup_mod
 from epublib import build as build_mod
 from epublib import config as config_mod
 from epublib import consolidate as consolidate_mod
@@ -340,11 +344,35 @@ def cmd_serve(args):
     if args.config:
         os.environ[config_mod.CONFIG_ENV] = str(Path(args.config).expanduser().resolve())
     cfg = _cfg(args)
+    # One server per data folder, and an import can tell one is running: the lock lives as long as this process.
+    lock = desktop_mod.InstanceLock(cfg.data_dir / backup_mod.SERVER_LOCK)
+    if not lock.acquire():
+        print(f"error: another Hondana server is already running on {cfg.data_dir}", file=sys.stderr)
+        return 1
     stdio_mod.redirect_to_log(cfg.data_dir / "logs" / "server.log")  # before uvicorn sets up logging
     parent = os.environ.get(desktop_mod.PARENT_ENV, "")
     if parent.isdigit():  # started by the desktop app: stop with it
         procs_mod.watch_parent(int(parent), procs_mod.interrupt_self)
     uvicorn.run("epublib.server:app", host=cfg.host, port=cfg.port, reload=args.reload)
+
+
+def cmd_export(args):
+    # config_mod.load, not _cfg: exporting must not seed a default profile in the folder it reads.
+    try:
+        backup_mod.export_data(config_mod.load(args.config), args.out, "curated" if args.curated else "full")
+    except backup_mod.BackupError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+
+
+def cmd_import(args):
+    # config_mod.load, not _cfg: a default profile seeded first would count as the folder's own data.
+    try:
+        backup_mod.import_data(config_mod.load(args.config), args.source, apply=args.apply, replace=args.replace,
+                               settings=args.settings, rebuild=args.rebuild)
+    except backup_mod.BackupError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
 
 
 def cmd_desktop(args):
@@ -426,6 +454,30 @@ def main(argv=None):
     p_aa.add_argument("--fail-at", type=int, default=10, metavar="N",
                       help="exit non-zero when a book has N or more such gaps (default 10)")
     p_aa.set_defaults(func=cmd_align_audit)
+
+    p_exp = sub.add_parser(
+        "export", help="Back up the data folder to one zip: your hand-made data plus the rebuildable caches",
+    )
+    p_exp.add_argument("--out", metavar="PATH",
+                       help="where to write it (a file, or a folder to put it in; default: data/backups/)")
+    p_exp.add_argument("--curated", action="store_true",
+                       help="only your hand-made data (what `push` mirrors): small, and `hondana all` rebuilds the rest")
+    p_exp.set_defaults(func=cmd_export)
+
+    p_imp = sub.add_parser(
+        "import", help="Restore or move a data folder from a backup zip, a data folder, a checkout or a mirror clone",
+    )
+    p_imp.add_argument("source", help="a zip made by `hondana export`, a data folder, a checkout that has data/, "
+                       "or a clone of your data mirror")
+    p_imp.add_argument("--apply", action="store_true", help="do it: without this, only report what would happen")
+    p_imp.add_argument("--replace", action="store_true",
+                       help="replace what is in this data folder (a full export of it is saved to data/backups/ first); "
+                       "without it, a folder that already holds your own data is refused")
+    p_imp.add_argument("--settings", action="store_true",
+                       help="also import settings.json (it names folders on the machine it came from)")
+    p_imp.add_argument("--rebuild", choices=backup_mod.REBUILDS, default="index",
+                       help="after importing: refresh the indexes (index, the default), run every stage (all), or neither (none)")
+    p_imp.set_defaults(func=cmd_import)
 
     p_ar = sub.add_parser(
         "align-remote",
