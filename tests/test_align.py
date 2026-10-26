@@ -132,6 +132,105 @@ def test_cues_with_parts_name_the_part_and_do_not_span_the_join():
     assert rows[19][2] == "a.mp3"
 
 
+# ── squeezed cues ───────────────────────────────────────────
+
+def _paced(sizes: list[int], per_second: float = 7.0, pause: int = 600, part: str | None = None) -> list[list]:
+    """Rows for sentences read at a steady pace, back to back with a short pause."""
+    rows, at = [], 0
+    for n in sizes:
+        end = at + round(1000 * n / per_second)
+        rows.append([at, end] + ([part] if part else []))
+        at = end + pause
+    return rows
+
+
+def _squeeze(rows: list[list], first: int, last: int, keep: float = 0.25) -> list[list]:
+    """Packs `rows[first:last+1]` into the last `keep` of the time they took, as a transcript that
+    lost the audio writes them: a hole, then the run, ending where the next sentence begins."""
+    run = rows[first:last + 1]
+    start, end = run[0][0], run[-1][1]
+    begin = end - round((end - start) * keep)
+    squeezed = [[begin + round((end - begin) * (r[0] - start) / (end - start)),
+                 begin + round((end - begin) * (r[1] - start) / (end - start))] + r[2:] for r in run]
+    return rows[:first] + squeezed + rows[last + 1:]
+
+
+def test_a_squeezed_run_after_a_hole_is_spread_over_the_time_it_took():
+    sizes = [20] * 60
+    good = _paced(sizes)
+    rows = _squeeze(good, 20, 40)
+    before = [list(r) for r in rows]
+    out = align.retime(rows, sizes)
+    run = out[20:41]
+    assert all(a[1] <= b[0] + 1 for a, b in zip(run, run[1:]))           # in order, no overlap
+    assert run[0][0] < before[20][0]                                       # it starts in the hole
+    assert out[:19] == before[:19] and out[41:] == before[41:]            # nothing else moves
+    assert abs(out[19][1] - good[19][1]) < 1500                            # the sentence before only trades its tail
+    pace = sum(sizes[20:41]) / ((run[-1][1] - run[0][0]) / 1000)
+    assert 5 < pace < 9                                                    # a human pace again
+    assert run[-1][1] == before[40][1]
+    for got, want in zip(run, good[20:41]):                                # and close to the truth
+        assert abs(got[0] - want[0]) < 4000
+
+
+def test_a_run_is_read_back_from_its_end_when_the_hole_is_longer_than_it_needs():
+    sizes = [20] * 60
+    good = _paced(sizes)
+    good[20:] = [[a + 100_000, b + 100_000] for a, b in good[20:]]       # a minute and a half of music
+    rows = _squeeze(good, 20, 40)
+    before = [list(r) for r in rows]
+    out = align.retime(rows, sizes)
+    assert out[19] == before[19]                                           # the sentence before the hole stays
+    assert out[20][0] > before[19][1] + 60_000                             # the music is left silent
+    assert out[20][0] < before[20][0]
+    assert abs(out[20][0] - good[20][0]) < 4000
+    assert out[40][1] == before[40][1]
+
+
+def test_ordinary_pace_and_real_silence_are_left_alone():
+    sizes = [20] * 60
+    rows = _paced(sizes)
+    rows[30:] = [[a + 45_000, b + 45_000] for a, b in rows[30:]]           # a minute of music
+    before = [list(r) for r in rows]
+    assert align.retime(rows, sizes) == before
+
+
+def test_a_few_short_fast_lines_are_not_a_squeezed_run():
+    sizes = [20] * 60
+    rows = _paced(sizes)
+    for k in (10, 11, 30):                                                 # "そう。" read fast
+        rows[k][1] = rows[k][0] + 700
+    before = [list(r) for r in rows]
+    assert align.retime(rows, sizes) == before
+
+
+def test_each_part_is_judged_alone_and_keeps_its_name():
+    sizes = [20] * 80
+    a, b = _paced(sizes[:40], part="a.mp3"), _paced(sizes[40:], part="b.mp3")
+    b = _squeeze(b, 10, 25)
+    rows = a + b
+    before = [list(r) for r in rows]
+    out = align.retime(rows, sizes)
+    assert out[:40] == before[:40]
+    assert out[50][0] < before[50][0]
+    assert all(r[2] == "b.mp3" for r in out[40:])
+
+
+def test_a_book_with_few_cues_is_not_judged():
+    sizes = [20] * 12
+    rows = _squeeze(_paced(sizes), 4, 9)
+    before = [list(r) for r in rows]
+    assert align.retime(rows, sizes) == before
+
+
+def test_unmatched_sentences_keep_their_place_through_retime():
+    sizes = [20] * 60
+    rows: list = _squeeze(_paced(sizes), 20, 40)
+    rows[25] = None
+    out = align.retime(rows, sizes)
+    assert out[25] is None and len(out) == 60
+
+
 # ── storage and the pack's anchors ───────────────────────────────────────────
 
 def test_sentence_texts_line_up_with_the_packs_sents(cfg):

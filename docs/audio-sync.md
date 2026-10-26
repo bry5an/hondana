@@ -144,4 +144,18 @@ You don't need `curl` for any of this.
   made for a different version of the book.
 
 Transcripts are kept in `data/alignments/` and backed up by `cli.py push`. The map is rebuilt
-from them when the book changes.
+from them when the book changes, or when the matcher does (`ALIGN_SCHEMA`): deploying a matcher
+change re-matches every stored transcript the next time its map is asked for, without re-transcribing.
+
+### Squeezed stretches
+
+Whisper sometimes loses the audio for a minute or two and writes the cues of that stretch packed
+into a few seconds, after a hole with no cue at all. On the phone the highlight blanks for the hole
+and then races ahead of the voice until the transcript catches up. The matcher repairs this
+(`align.retime`): a run of four or more sentences read at over 2.4 times the book's median pace is
+spread out, by length, over the time ahead of it that makes its pace human again; where the hole is
+longer than the run needs, the run is read at the book's usual pace back from its end and the rest of
+the hole stays silent. Sentences with a normal pace are not touched. This is a heuristic, not a new
+transcript, so a repaired stretch can still be a second or two off; a run it can't place (no
+sentence before it brings the pace back to normal) is left as transcribed. The hondana-ios reader
+also stops turning the page by itself while the highlight moves faster than speech can.

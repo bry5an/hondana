@@ -51,7 +51,8 @@ from . import annotate
 from .config import Config
 from .index_store import write_bytes_atomic
 
-ALIGN_SCHEMA = 2  # 2: the matcher no longer lets a repeated line skip ahead
+ALIGN_SCHEMA = 3  # 3: squeezed runs of cues are spread back out over the time they took
+# 2: the matcher no longer lets a repeated line skip ahead
 OK_COVERAGE = 0.90
 
 _BIN = 8            # offset votes are pooled in bins this wide (insertions shift offsets)
@@ -64,6 +65,18 @@ _MIN_SENT_COVER = 0.5  # share of a sentence's characters cues must cover
 _TRUST_GAP = 120    # a hit further than this past the cursor must be confirmed: a next cue just behind it
 _CONFIRM_CUES = 2   # how many following cues are tried to confirm one
 _CANDIDATES = 4     # voted places verified per cue
+
+# retime(): Whisper sometimes loses the audio for a stretch and writes a run of cues packed into
+# a few seconds after a long hole, which the phone shows as a highlight that blanks and then races
+# ahead of the voice. Rates are characters of base text per second.
+_RETIME_MIN_SENTENCES = 30  # a book with fewer cues has no usual pace to judge a run by
+_DENSE = 2.4        # a sentence read faster than this many times the book's median is squeezed
+_DENSE_GAP = 3      # ordinary sentences allowed between two squeezed ones in one run
+_DENSE_RUN = 4      # squeezed sentences a run needs to be repaired
+_DENSE_JOINT = 1.6  # ... and its pace as a whole, over this many times the median
+_PACED = 1.4        # the run is given the time ahead of it until it reads at most this fast
+_LOOKBACK = 12      # sentences ahead of the run that may lend their time
+_LEAN = 0.7         # time borrowed from a hole that makes the run slower than this is too much
 
 
 class AlignError(Exception):
@@ -252,7 +265,95 @@ def match_cues(sentences: list[str], cues: list[Cue]) -> list[list | None]:
         if part is not None:
             row.append(part)
         out.append(row)
-    return out
+    return retime(out, [len(n) for n in norms])
+
+
+def retime(rows: list[list | None], sizes: list[int]) -> list[list | None]:
+    """Spreads out runs of sentences whose cues are packed too tightly to be spoken.
+
+    `rows` are `match_cues`' rows and `sizes` the length of each sentence's base text. A run of
+    four or more sentences read at over 2.4 times the book's median pace, with ordinary pace
+    nowhere near it, is where the transcript lost the audio: the voice is somewhere ahead of
+    the run (in the hole before it, or in the stretched cues of the sentences before the hole).
+    The run takes the time from the nearest sentence before it that makes its pace human again,
+    divided between the sentences by their length. Where that borrows far more time than the
+    run needs, the run is read at the book's usual pace back from its end instead and the rest of the
+    hole stays silent. Rows are changed in place. Time is per part, so a part is judged alone."""
+    by_part: dict = {}
+    for i, row in enumerate(rows):
+        if row and sizes[i] > 0:
+            by_part.setdefault(row[2] if len(row) > 2 else None, []).append(i)
+    pace = sorted(sizes[i] / max((rows[i][1] - rows[i][0]) / 1000, 0.05) for ids in by_part.values() for i in ids)
+    if len(pace) < _RETIME_MIN_SENTENCES:
+        return rows
+    median = pace[len(pace) // 2]
+    # The pace with the pauses between sentences in it, over stretches without a hole: what a run
+    # that has to be placed afresh takes per character.
+    chars = seconds = 0.0
+    for ids in by_part.values():
+        for a, b in zip(ids, ids[1:]):
+            step = (rows[b][0] - rows[a][0]) / 1000
+            if 0 < step < 5 and sizes[a] / step <= _DENSE * median:  # not a hole, not squeezed
+                chars += sizes[a]
+                seconds += step
+    usual = chars / seconds if seconds else median
+    for ids in by_part.values():
+        _retime_part(rows, sizes, ids, median, usual)
+    return rows
+
+
+def _retime_part(rows: list, sizes: list[int], ids: list[int], median: float, usual: float) -> None:
+    def joint(a: int, b: int) -> float:
+        span = max((rows[ids[b]][1] - rows[ids[a]][0]) / 1000, 0.05)
+        return sum(sizes[ids[k]] for k in range(a, b + 1)) / span
+
+    fast = [k for k, i in enumerate(ids) if sizes[i] / max((rows[i][1] - rows[i][0]) / 1000, 0.05) > _DENSE * median]
+    runs: list[list[int]] = []  # [first, last, how many fast]
+    for k in fast:
+        if runs and k - runs[-1][1] <= _DENSE_GAP + 1:
+            runs[-1][1] = k
+            runs[-1][2] += 1
+        else:
+            runs.append([k, k, 1])
+    quick = set(fast)
+    for run in runs:
+        # A lone fast sentence just after ordinary ones is the next passage's, not this run's tail:
+        # cutting the run there keeps the well-timed sentences after the run where they were.
+        while run[2] > 1 and run[1] - 1 not in quick and run[1] - 2 not in quick:
+            run[1] = max(k for k in fast if k < run[1] and k >= run[0])
+            run[2] -= 1
+    spans: list[list[int]] = []
+    for first, last, count in runs:
+        if count < _DENSE_RUN or joint(first, last) <= _DENSE_JOINT * median:
+            continue
+        start = next((first - back for back in range(1, min(_LOOKBACK, first) + 1)
+                      if joint(first - back, last) <= _PACED * median), None)
+        if start is None:
+            continue
+        if spans and start <= spans[-1][1]:  # two runs sharing the time before them are one
+            spans[-1][1] = last
+            spans[-1][0] = min(spans[-1][0], start)
+        else:
+            spans.append([start, last])
+    for start, last in spans:
+        end = rows[ids[last]][1]
+        if joint(start, last) < _LEAN * median and start < last:
+            # The sentence ahead only brought a hole with it: leave it, and read the run at the usual
+            # pace back from its end, but not into the sentence before it or past its own first cue.
+            start += 1
+            own = rows[ids[start]][0]
+            total = sum(sizes[ids[k]] for k in range(start, last + 1))
+            begin = max(rows[ids[start - 1]][1], end - round(1000 * total / usual))
+            begin = min(begin, own)
+        else:
+            begin = rows[ids[start]][0]
+        total = sum(sizes[ids[k]] for k in range(start, last + 1))
+        done = 0
+        for k in range(start, last + 1):
+            row = rows[ids[k]]
+            row[0] = round(begin + (end - begin) * done / total)
+            done += sizes[ids[k]]
+            row[1] = round(begin + (end - begin) * done / total)
 
 
 # ── storage ──────────────────────────────────────────────────────────────────
