@@ -8,8 +8,26 @@ pointed at one log file so a user with a problem has something to send.
 """
 from __future__ import annotations
 
+import os
 import sys
 from pathlib import Path
+
+
+def make_output_safe() -> None:
+    """Printing a Japanese title must never crash a command. A Windows pipe or file
+    defaults to cp1252, which can't encode it, so those use UTF-8 (the default Python
+    is moving to); anywhere else a character the stream can't encode becomes `?`."""
+    for stream in (sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if reconfigure is None:
+            continue
+        try:
+            if os.name == "nt" and not stream.isatty():
+                reconfigure(encoding="utf-8", errors="replace")
+            else:
+                reconfigure(errors="replace")
+        except (ValueError, OSError):
+            pass
 
 
 def needs_log_file() -> bool:

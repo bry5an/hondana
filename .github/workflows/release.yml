@@ -1,0 +1,150 @@
+name: Release
+
+# A v* tag builds the desktop apps, checks that each one passes its own --self-test and
+# publishes a GitHub release with them. (The Docker image is published by docker.yml on
+# the same tag.) A pull request that touches the packaging builds and tests them too, but
+# publishes nothing.
+on:
+  push:
+    tags: ["v*"]
+  pull_request:
+    paths:
+      - packaging/**
+      - .github/workflows/release.yml
+      - epublib/desktop.py
+      - epublib/selftest.py
+      - pyproject.toml
+      - uv.lock
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  build:
+    name: build (${{ matrix.name }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Intel Macs have no hosted runner any more: they run from source or Docker.
+          # Windows is x64 only: there are no Windows-on-ARM wheels for the tokenizers.
+          - {name: macos-arm64, os: macos-14}
+          - {name: windows-x64, os: windows-latest}
+    env:
+      # Signing and notarizing happen only when these secrets exist.
+      APPLE_CERT_P12: ${{ secrets.APPLE_CERT_P12 }}
+      APPLE_CERT_PASSWORD: ${{ secrets.APPLE_CERT_PASSWORD }}
+      APPLE_IDENTITY: ${{ secrets.APPLE_IDENTITY }}
+      APPLE_ID: ${{ secrets.APPLE_ID }}
+      APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+      APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+      AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+          python-version: "3.13"
+      - name: Read the version, and on a tag check that it matches
+        id: version
+        shell: bash
+        run: |
+          version=$(python -c "import tomllib; print(tomllib.load(open('pyproject.toml','rb'))['project']['version'])")
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          if [[ "$GITHUB_REF" == refs/tags/v* && "${GITHUB_REF_NAME#v}" != "$version" ]]; then
+            echo "::error::tag $GITHUB_REF_NAME does not match pyproject.toml version $version"
+            exit 1
+          fi
+      - run: uv sync --frozen --extra desktop --group build
+      - run: uv run python packaging/make_icons.py packaging/build
+      - run: uv run pyinstaller packaging/hondana.spec --noconfirm --distpath dist --workpath build/pyinstaller
+
+      # ── macOS ────────────────────────────────────────────────────────────────
+      - name: Sign the app
+        if: runner.os == 'macOS' && env.APPLE_CERT_P12 != ''
+        run: |
+          echo "$APPLE_CERT_P12" | base64 --decode > "$RUNNER_TEMP/cert.p12"
+          security create-keychain -p ci "$RUNNER_TEMP/build.keychain"
+          security default-keychain -s "$RUNNER_TEMP/build.keychain"
+          security unlock-keychain -p ci "$RUNNER_TEMP/build.keychain"
+          security import "$RUNNER_TEMP/cert.p12" -k "$RUNNER_TEMP/build.keychain" -P "$APPLE_CERT_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple: -s -k ci "$RUNNER_TEMP/build.keychain"
+          codesign --force --deep --options runtime --timestamp \
+            --entitlements packaging/macos/entitlements.plist --sign "$APPLE_IDENTITY" dist/Hondana.app
+      - name: Self-test (macOS)
+        if: runner.os == 'macOS'
+        run: dist/Hondana.app/Contents/MacOS/Hondana --self-test
+      - name: Make the disk image
+        if: runner.os == 'macOS'
+        run: packaging/macos/build_dmg.sh "${{ steps.version.outputs.version }}" arm64
+      - name: Notarize the disk image
+        if: runner.os == 'macOS' && env.APPLE_CERT_P12 != '' && env.APPLE_ID != ''
+        run: |
+          dmg=$(ls dist/*.dmg)
+          xcrun notarytool submit "$dmg" --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" \
+            --password "$APPLE_APP_PASSWORD" --wait
+          xcrun stapler staple "$dmg"
+
+      # ── Windows ──────────────────────────────────────────────────────────────
+      - name: Self-test (Windows)
+        if: runner.os == 'Windows'
+        run: dist\Hondana\hondana-cli.exe --self-test
+      - name: Make the installer
+        if: runner.os == 'Windows'
+        run: iscc "/DAppVersion=${{ steps.version.outputs.version }}" packaging\windows\hondana.iss
+      - name: Make the portable zip
+        if: runner.os == 'Windows'
+        run: Compress-Archive -Path dist\Hondana -DestinationPath "dist\Hondana-${{ steps.version.outputs.version }}-windows-x64-portable.zip"
+      - name: Sign the Windows files
+        if: runner.os == 'Windows' && env.AZURE_TENANT_ID != ''
+        uses: azure/trusted-signing-action@v1.2.0
+        with:
+          azure-tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          azure-client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          azure-client-secret: ${{ secrets.AZURE_CLIENT_SECRET }}
+          endpoint: ${{ secrets.AZURE_SIGNING_ENDPOINT }}
+          trusted-signing-account-name: ${{ secrets.AZURE_SIGNING_ACCOUNT }}
+          certificate-profile-name: ${{ secrets.AZURE_SIGNING_PROFILE }}
+          files-folder: dist
+          files-folder-filter: exe
+          file-digest: SHA256
+          timestamp-rfc3161: http://timestamp.acs.microsoft.com
+          timestamp-digest: SHA256
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: hondana-${{ matrix.name }}
+          path: |
+            dist/*.dmg
+            dist/*-setup.exe
+            dist/*-portable.zip
+          if-no-files-found: error
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          path: assets
+          merge-multiple: true
+      - name: Checksums
+        run: cd assets && sha256sum * > SHA256SUMS && cat SHA256SUMS
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          flags=()
+          [[ "$GITHUB_REF_NAME" == *-* ]] && flags+=(--prerelease)
+          gh release create "$GITHUB_REF_NAME" assets/* --repo "$GITHUB_REPOSITORY" \
+            --title "Hondana ${GITHUB_REF_NAME#v}" --generate-notes --verify-tag "${flags[@]}"

@@ -245,3 +245,17 @@ def test_a_frozen_app_without_a_terminal_logs_to_the_file(tmp_path, monkeypatch)
     assert stdio.needs_log_file()
     assert stdio.redirect_to_log(tmp_path / "server.log") is True
     sys.stdout.close()
+
+
+def test_printing_japanese_to_a_narrow_stream_does_not_crash(monkeypatch):
+    import io
+
+    raw = io.BytesIO()
+    narrow = io.TextIOWrapper(raw, encoding="cp1252", newline="\n", write_through=True)
+    monkeypatch.setattr(sys, "stdout", narrow)
+    monkeypatch.setattr(sys, "stderr", narrow)
+    with pytest.raises(UnicodeEncodeError):
+        print("吾輩は猫である")  # what a Windows pipe did to `hondana scan`
+    stdio.make_output_safe()
+    print("吾輩は猫である")
+    assert raw.getvalue() in ("吾輩は猫である\n".encode("utf-8"), b"???????\n")
