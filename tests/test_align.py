@@ -740,6 +740,16 @@ def test_a_fix_for_another_audiobook_or_book_is_refused(client):
     assert r["rejected"] == [{"id": "f3", "reason": "no_book"}]
 
 
+def test_a_fix_made_against_an_id_the_audiobook_left_is_read_as_the_new_one(client, server):
+    """The phone queued it before the audiobook gained its key (audiobook_rekey)."""
+    assert _post(client, "b1", srt_for(SENTENCES)).status_code == 200
+    save_json(server.cfg.audiobook_aliases, {"f0123456789abcd": "B0AUDIO001"})
+    assert _fix(client, ab="f0123456789abcd")["rejected"] == []
+    assert align.load_anchors(server.cfg, "b1", "B0AUDIO001") == {(0, 12): (None, 240_000)}
+    assert _fix(client, ab="f0aaaaaaaaaaaaa", eid="f2")["rejected"] == [
+        {"id": "f2", "reason": "audiobook_changed"}]
+
+
 def test_fixes_are_kept_like_the_srt(cfg):
     book = _book(cfg)
     align.ingest(cfg, book, "B0AUDIO001", None, srt_for(SENTENCES))

@@ -308,8 +308,12 @@ _BOOKMARK_FIELDS = ("stable_key", "book_id", "sha256", "doc", "sent", "cfi", "fr
 
 def merge_bookmarks(cfg: Config, events: list[dict]) -> int:
     """Last write wins by `ts`, per bookmark id; a delete leaves a tombstone for
-    BOOKMARK_TOMBSTONE_DAYS so other devices drop their copy. Returns how many changed."""
-    newest = collapse(events, "bookmark_id")
+    BOOKMARK_TOMBSTONE_DAYS so other devices drop their copy. A bookmark made against an audiobook
+    id that has since gone (audiobook_rekey.py) is stored under the one it went to, as
+    `merge_audio_progress` does. Returns how many changed."""
+    aliases: dict = load_json(cfg.audiobook_aliases, {})
+    newest = collapse([{**e, "ab_id": aliases.get(e.get("ab_id"), e.get("ab_id"))} for e in events],
+                      "bookmark_id")
     stored = load_bookmarks(cfg)
     changed = 0
     for key, e in newest.items():

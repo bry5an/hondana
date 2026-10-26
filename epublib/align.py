@@ -793,6 +793,32 @@ def load_anchors(cfg: Config, book_id: str, ab_id: str | None) -> dict[tuple[int
     return {k: (e.get("part"), int(e["ms"])) for k, e in newest.items() if e.get("op", "set") == "set"}
 
 
+def rekey_anchors(cfg: Config, old: str, new: str) -> list[str]:
+    """Points every fix made against audiobook `old` at `new` (audiobook_rekey: the audiobook gained
+    a key). `load_anchors` ignores a fix made against another audiobook, so without this the
+    listeners' fixes would stop applying. Returns the anchors files rewritten."""
+    changed: list[str] = []
+    for path in sorted(cfg.alignments_dir.glob("*.anchors.jsonl")):
+        with _book_lock(path.name[:-len(".anchors.jsonl")]):
+            try:
+                lines = path.read_text("utf-8").splitlines()
+            except OSError:
+                continue
+            out, hit = [], False
+            for line in lines:
+                try:
+                    e = json.loads(line)
+                except ValueError:
+                    e = None
+                if isinstance(e, dict) and e.get("ab_id") == old:
+                    line, hit = json.dumps({**e, "ab_id": new}, ensure_ascii=False), True
+                out.append(line)
+            if hit:
+                write_bytes_atomic(path, ("\n".join(out) + "\n").encode("utf-8"))
+                changed.append(path.name)
+    return changed
+
+
 def _anchors_sha(cfg: Config, book_id: str) -> str:
     path = anchors_path(cfg, book_id)
     return hashlib.sha256(path.read_bytes()).hexdigest() if path.exists() else ""

@@ -1109,10 +1109,13 @@ async def delete_alignment(book_id: str, kind: str | None = None) -> JSONRespons
 
 def _record_anchors(events: list[dict], who: str | None) -> list[dict]:
     """Stores listeners' sync fixes against each book's linked audiobook; the map picks them
-    up on its next request. Refused: an unknown book (`no_book`), a fix made against another
-    audiobook (`audiobook_changed`) or another copy of the book (`book_changed`)."""
+    up on its next request. A fix made against an id the audiobook has since left (it gained a
+    key, audiobook_rekey.py) is read as the one it went to. Refused: an unknown book (`no_book`),
+    a fix made against another audiobook (`audiobook_changed`) or another copy of the book
+    (`book_changed`)."""
     rejected: list[dict] = []
     library = _load_library()
+    aliases = load_json(cfg.audiobook_aliases, {})
     by_book: dict[str, list[dict]] = {}
     for e in events:
         book = library.get(e["book_id"])
@@ -1120,6 +1123,7 @@ def _record_anchors(events: list[dict], who: str | None) -> list[dict]:
             rejected.append({"id": e["id"], "reason": "no_book"})
             continue
         ab_id = _book_audiobook(book)[0]
+        e = {**e, "ab_id": aliases.get(e["ab_id"], e["ab_id"])}
         if ab_id != e["ab_id"]:
             rejected.append({"id": e["id"], "reason": "audiobook_changed"})
             continue

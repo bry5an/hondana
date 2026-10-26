@@ -96,10 +96,14 @@ def _seed_curated(cfg):
     cfg.alignments_dir.mkdir()
     (cfg.alignments_dir / "b1.srt").write_text("1\n00:00:00,000 --> 00:00:01,000\nx\n")
     (cfg.alignments_dir / "b1.json").write_text("{}")  # derived map
+    (cfg.alignments_dir / "b1.transcript.srt").write_text("1\n00:00:00,000 --> 00:00:01,000\ny\n")
+    (cfg.alignments_dir / "b1.anchors.jsonl").write_text('{"ab_id": "B0AAAAAAAA", "doc": 0, "sentence": 1}\n')
+    (cfg.alignments_dir / "b1.silence.json").write_text("{}")  # ffmpeg's cache, rebuildable
     user = cfg.users_dir / "reader2"
     (user / "history").mkdir(parents=True)
     (user / "known_words.json").write_text("{}")
     (user / "read_books.json").write_text("{}")
+    (user / "bookmarks.json").write_text("{}")
     (user / "future_file.json").write_text("{}")  # a per-user file nobody listed
     (user / "known_stats.json").write_text("{}")  # derived
     (user / ".DS_Store").write_text("")
@@ -121,8 +125,11 @@ def test_push_mirrors_the_curated_files_and_nothing_derived(tmp_path, mirror):
         "covers/custom/b1.png",
         "covers/audiobooks/custom/B0AAAAAAAA.png",
         "alignments/b1.srt",
+        "alignments/b1.transcript.srt",
+        "alignments/b1.anchors.jsonl",
         "users/reader2/known_words.json",
         "users/reader2/read_books.json",
+        "users/reader2/bookmarks.json",
         "users/reader2/future_file.json",
     }
 

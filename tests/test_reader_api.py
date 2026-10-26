@@ -431,6 +431,14 @@ def test_old_tombstones_are_forgotten(server, client):
     assert set(client.get("/api/reader/progress").json()["bookmarks"]) == {"bm2"}  # 1970's tombstone is long gone
 
 
+def test_a_bookmark_made_against_an_id_the_audiobook_left_is_stored_under_the_new_one(server, client):
+    save_json(server.cfg.audiobook_aliases, {"f0123456789abcd": "B0AUDIO001"})
+    _post(client, [_bookmark(1, 1000.0, ab_id="f0123456789abcd")])
+    assert client.get("/api/reader/progress").json()["bookmarks"]["bm1"]["ab_id"] == "B0AUDIO001"
+    _post(client, [{**_bookmark(2, 1001.0), "bookmark_id": "bm2", "ab_id": ""}])  # a text-only one
+    assert client.get("/api/reader/progress").json()["bookmarks"]["bm2"]["ab_id"] == ""
+
+
 def test_bookmarks_are_per_profile_and_checked(server, client):
     _post(client, [_bookmark(1, 1000.0)])
     ben = profiles.create(server.cfg, "Ben", "ja")["slug"]
