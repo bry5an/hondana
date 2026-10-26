@@ -7,7 +7,9 @@ from __future__ import annotations
 
 import json
 import os
+import tempfile
 import threading
+import time
 from pathlib import Path
 from typing import Any
 
@@ -19,6 +21,25 @@ def load_json(path: Path, default: Any = None) -> Any:
         return json.load(f)
 
 
+_WINDOWS = os.name == "nt"
+_REPLACE_TRIES = 8
+_REPLACE_PAUSE = 0.05  # seconds, times the try number
+
+
+def replace_file(src: Path | str, dst: Path | str) -> None:
+    """os.replace, retried briefly on Windows. There the replace fails with
+    PermissionError while another thread or a virus scanner has `dst` open, which
+    clears within moments; on POSIX the same error is real and raised at once."""
+    for attempt in range(1, _REPLACE_TRIES + 1):
+        try:
+            os.replace(src, dst)
+            return
+        except PermissionError:
+            if not _WINDOWS or attempt == _REPLACE_TRIES:
+                raise
+            time.sleep(_REPLACE_PAUSE * attempt)
+
+
 def save_json(path: Path, data: Any) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     # Per-writer temp name so two concurrent writers of one index can't
@@ -26,7 +47,24 @@ def save_json(path: Path, data: Any) -> None:
     tmp = path.with_suffix(f"{path.suffix}.{os.getpid()}.{threading.get_ident()}.tmp")
     with open(tmp, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
-    os.replace(tmp, path)
+    replace_file(tmp, path)
+
+
+def write_bytes_atomic(path: Path, data: bytes, mode: int = 0o644) -> None:
+    """Write `data` to `path` through a temp file in the same folder, so a reader
+    sees the old file or the new one. mkstemp makes the file 0600 and the other
+    data files aren't, so `mode` is applied where the platform has modes."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.", suffix=".tmp")
+    try:
+        if hasattr(os, "fchmod"):
+            os.fchmod(fd, mode)
+        with os.fdopen(fd, "wb") as f:
+            f.write(data)
+        replace_file(tmp, path)
+    except BaseException:
+        Path(tmp).unlink(missing_ok=True)
+        raise
 
 
 # mtime-keyed cache, shared by every caller (server.py's request handlers,

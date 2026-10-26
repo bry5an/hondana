@@ -113,18 +113,29 @@ def plan(cfg: Config) -> Advert | None:
     return Advert(port=port, name=display_name(cfg), host=cfg.discovery_advertise_host)
 
 
+LABEL_MAX = 63  # bytes in one DNS label; zeroconf refuses a longer service or host name
+
+
+def fit_label(text: str, room: int) -> str:
+    """`text` cut to at most `room` UTF-8 bytes without splitting a character. A
+    Japanese computer name is three bytes a character, so twenty of them are too
+    long for the service name, and a CI runner's hostname is a UUID."""
+    return text.encode("utf-8")[:room].decode("utf-8", "ignore").rstrip(" .")
+
+
 def build_info(advert: Advert, addresses: list[str]):
     from zeroconf import ServiceInfo
 
     properties = {"scheme": "http", "path": "/", "name": advert.name, "v": "1"}
     if advert.host:  # behind a proxy that only answers to its own Host
         properties["host"] = advert.host
+    prefix, suffix = "Hondana on ", "-hondana"
     return ServiceInfo(
         SERVICE_TYPE,
-        f"Hondana on {advert.name}.{SERVICE_TYPE}",
+        f"{prefix}{fit_label(advert.name, LABEL_MAX - len(prefix))}.{SERVICE_TYPE}",
         port=advert.port,
         # A server name of our own, so it can't clash with the host's own `<name>.local`.
-        server=f"{advert.name}-hondana.local.",
+        server=f"{fit_label(advert.name, LABEL_MAX - len(suffix))}{suffix}.local.",
         properties=properties,
         addresses=[socket.inet_aton(a) for a in addresses],
     )

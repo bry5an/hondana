@@ -60,7 +60,7 @@ def test_every_audiobook_store_follows_a_new_ab_id(cfg):
 
 def _git(path, *args) -> str:
     return subprocess.run(["git", "-C", str(path), *args], check=True,
-                          capture_output=True, text=True).stdout
+                          capture_output=True, text=True, encoding="utf-8").stdout
 
 
 @pytest.fixture
@@ -138,7 +138,7 @@ def test_push_with_nothing_changed_makes_no_commit(tmp_path, mirror, capsys):
     assert _git(remote, "rev-parse", "HEAD") == head
     assert "no changes" in capsys.readouterr().out
 
-    (cfg.data_dir / "genre_overrides.json").write_text('{"b1": "ホラー"}')
+    (cfg.data_dir / "genre_overrides.json").write_text('{"b1": "ホラー"}', encoding="utf-8")
     data_mirror.push(cfg)
     assert _git(remote, "rev-parse", "HEAD") != head
     assert _git(remote, "show", "HEAD:genre_overrides.json") == '{"b1": "ホラー"}'

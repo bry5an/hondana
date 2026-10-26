@@ -42,6 +42,8 @@ One command does the whole trip, from a clone of this repo on the Mac.
    ```
 
    `{audio}`, `{text}` and `{out}` are filled in for every audio file; keep them as written.
+   On Windows, or anywhere a path has spaces or backslashes, write the command as an array of
+   arguments instead of one string: `subplz_cmd = ["C:\\Tools\\subplz.exe", "sync", "--audio", "{audio}", "--text", "{text}", "--output-dir", "{out}"]`.
    `align-remote` reads this file whenever you don't pass `--config`. `--server URL` still
    overrides `server`; with neither, it uses the one Hondana server it finds on the network over
    Bonjour (and asks for `--server` if it finds none, or several).

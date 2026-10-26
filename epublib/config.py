@@ -57,8 +57,9 @@ class Config:
     dicts_dir: Path | None = None
 
     # Command template that aligns one audio file to the book's text (align_jobs.py),
-    # with {audio}, {text} and {out} placeholders; "" = not configured.
-    subplz_cmd: str = ""
+    # with {audio}, {text} and {out} placeholders; "" = not configured. A string is
+    # split like a POSIX shell, a list is the argv as written (Windows paths).
+    subplz_cmd: str | list[str] = ""
 
     # A folder to drop new EPUBs and audiobooks into (inbox.py); None = no inbox.
     inbox_dir: Path | None = None

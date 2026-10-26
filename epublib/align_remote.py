@@ -43,6 +43,7 @@ CACHE_ROOT = Path("~/.cache/hondana/align").expanduser()
 #   token = "hnd_..."          # only if the server has an admin password (Settings › Script tokens)
 #   [alignment]
 #   subplz_cmd = "subplz sync --audio {audio} --text {text} --output-dir {out} ..."
+#   (or an array of arguments: ["C:\\Tools\\subplz.exe", "sync", "--audio", "{audio}", ...])
 USER_CONFIG = Path("~/.config/hondana/align.toml").expanduser()
 CHUNK = 1 << 20
 TIMEOUT = (10, 120)  # connect, read
@@ -52,7 +53,7 @@ class RemoteError(Exception):
     """Something to tell the user and stop on (the exit is non-zero)."""
 
 
-def user_settings(path: Path | None = None) -> dict[str, str]:
+def user_settings(path: Path | None = None) -> dict[str, str | list[str]]:
     """`server` and `subplz_cmd` from USER_CONFIG, leaving out what it doesn't set
     ({} when there is no such file). A file that isn't TOML is a RemoteError."""
     path = path or USER_CONFIG
@@ -62,9 +63,14 @@ def user_settings(path: Path | None = None) -> dict[str, str]:
         raw = tomllib.loads(path.read_text(encoding="utf-8"))
     except (tomllib.TOMLDecodeError, UnicodeDecodeError) as exc:
         raise RemoteError(f"{path} isn't valid TOML: {exc}") from exc
-    found = {"server": raw.get("server"), "token": raw.get("token"),
-             "subplz_cmd": raw.get("alignment", {}).get("subplz_cmd")}
-    return {k: str(v).strip() for k, v in found.items() if v and str(v).strip()}
+    found: dict[str, str | list[str]] = {
+        k: str(raw[k]).strip() for k in ("server", "token") if str(raw.get(k) or "").strip()}
+    cmd = raw.get("alignment", {}).get("subplz_cmd")
+    if isinstance(cmd, list) and cmd:  # an argv array, as in the server's config
+        found["subplz_cmd"] = [str(a) for a in cmd]
+    elif cmd and str(cmd).strip():
+        found["subplz_cmd"] = str(cmd).strip()
+    return found
 
 
 def find_server(given: str | None, browse: Callable[[], list[dict]] = discovery.browse) -> str:
@@ -353,7 +359,7 @@ def work_dir(server: Server, book_id: str, root: Path | None = None) -> Path:
     return (root or CACHE_ROOT) / server.host / book_id
 
 
-def align_book(server: Server, plan: Plan, subplz_cmd: str, *, force: bool = False,
+def align_book(server: Server, plan: Plan, subplz_cmd: align_jobs.Command, *, force: bool = False,
                keep_audio: bool = False, root: Path | None = None,
                log: Callable[[str], None] = print) -> Result:
     """Take one book from the server to an uploaded alignment. Raises RemoteError

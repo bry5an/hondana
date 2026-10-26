@@ -42,7 +42,7 @@ def rig(tmp_path):
     """cfg with the stand-in command, a book, and a folder of stub audio."""
     script = tmp_path / "fake_subplz.py"
     script.write_text(FAKE, encoding="utf-8")
-    cfg = make_cfg(tmp_path, subplz_cmd=f"{sys.executable} {script} {{audio}} {{text}} {{out}}")
+    cfg = make_cfg(tmp_path, subplz_cmd=[sys.executable, str(script), "{audio}", "{text}", "{out}"])
     audio_dir = tmp_path / "audio"
     audio_dir.mkdir()
     return cfg, _book(cfg), audio_dir, align_jobs.AlignJobs(cfg)
@@ -249,7 +249,7 @@ def client(server, tmp_path):
     root.mkdir()
     (root / "book.m4b").write_text("OK")
     scfg.audiobook_dirs = [root]
-    scfg.subplz_cmd = f"{sys.executable} {script} {{audio}} {{text}} {{out}}"
+    scfg.subplz_cmd = [sys.executable, str(script), "{audio}", "{text}", "{out}"]
     save_json(scfg.library_index, {
         "b1": _book(scfg, "b1"),
         "nolink": {**_book(scfg, "nolink"), "audiobook": {"audible_isbn": "B0GONE0003",

@@ -38,6 +38,8 @@ from . import align, annotate
 from .config import Config
 
 _PLACEHOLDERS = ("{audio}", "{text}", "{out}")
+_WINDOWS = os.name == "nt"
+Command = str | list[str]  # `[alignment] subplz_cmd`: a shell-style string, or an argv array
 _TAIL_BYTES = 600  # how much of the command's output an error message carries
 
 
@@ -50,32 +52,57 @@ def command_problem(cfg: Config) -> str | None:
     return template_problem(cfg.subplz_cmd)
 
 
-def template_problem(template: str) -> str | None:
+def _split(template: Command) -> list[str]:
+    """The command as an argv with its placeholders still in. A string is split
+    like a POSIX shell; a list (a TOML array) is used as written, which is what a
+    Windows path with backslashes needs, since shlex would eat them."""
+    if isinstance(template, str):
+        return shlex.split(template)
+    return [str(a) for a in template]
+
+
+def template_problem(template: Command) -> str | None:
     if not template:
         return "subplz_cmd is not set in the config ([alignment] subplz_cmd)"
     try:
-        argv = shlex.split(template)
+        argv = _split(template)
     except ValueError as exc:
         return f"subplz_cmd is not a valid command: {exc}"
     if not argv:
         return "subplz_cmd is empty"
-    if "{audio}" not in template or "{text}" not in template:
+    if not any("{audio}" in a for a in argv) or not any("{text}" in a for a in argv):
         return "subplz_cmd must contain {audio} and {text}"
     return None
 
 
-def _argv(template: str, audio: Path, text: Path, out: Path) -> list[str]:
+def _argv(template: Command, audio: Path, text: Path, out: Path) -> list[str]:
     values = {"{audio}": str(audio), "{text}": str(text), "{out}": str(out)}
     argv = []
-    for arg in shlex.split(template):
+    for arg in _split(template):
         for token, value in values.items():
             arg = arg.replace(token, value)  # not str.format: other braces stay as typed
         argv.append(arg)
     return argv
 
 
+def popen_flags() -> dict:
+    """Popen arguments that put the command in a group `stop_process` can end: its
+    own session on POSIX, its own process group on Windows."""
+    if _WINDOWS:
+        return {"creationflags": getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0x200)}
+    return {"start_new_session": True}
+
+
 def stop_process(proc: subprocess.Popen) -> None:
-    """Terminate the command and anything it spawned (it runs in its own session)."""
+    """Terminate the command and anything it spawned (it runs in its own group, see
+    `popen_flags`). Windows has no killpg: `taskkill /T` walks the process tree."""
+    if _WINDOWS:
+        try:
+            subprocess.run(["taskkill", "/T", "/F", "/PID", str(proc.pid)],
+                           stdin=subprocess.DEVNULL, capture_output=True, check=False)
+        except OSError:
+            proc.terminate()
+        return
     try:
         os.killpg(proc.pid, signal.SIGTERM)
     except (ProcessLookupError, PermissionError):
@@ -87,7 +114,7 @@ def out_dir(work: Path, i: int) -> Path:
     return work / f"out-{i:03d}"
 
 
-def transcribe(template: str, audio: Path, text: Path, work: Path, i: int, *,
+def transcribe(template: Command, audio: Path, text: Path, work: Path, i: int, *,
                on_start: Callable[[subprocess.Popen], None] | None = None,
                on_end: Callable[[], None] | None = None,
                cancelled: Callable[[], bool] | None = None) -> Path:
@@ -108,8 +135,9 @@ def transcribe(template: str, audio: Path, text: Path, work: Path, i: int, *,
     with open(log, "wb") as logf:
         try:
             proc = subprocess.Popen(argv, stdin=subprocess.DEVNULL, stdout=logf,
-                                    stderr=subprocess.STDOUT, start_new_session=True,
-                                    cwd=work)  # SubPlz keeps a ./config/ cache in its cwd
+                                    stderr=subprocess.STDOUT,
+                                    cwd=work,  # SubPlz keeps a ./config/ cache in its cwd
+                                    **popen_flags())
         except OSError as exc:
             raise RuntimeError(f"could not run {argv[0]}: {exc}") from exc
         if on_start:
