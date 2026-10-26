@@ -37,8 +37,8 @@ ENV PATH=/app/.venv/bin:$PATH \
     HONDANA_IN_CONTAINER=1 \
     HONDANA_SUPERVISED=1
 # Writable by the default user; compose's `user:` (PUID/PGID) needs its own ownership.
-RUN mkdir -p /config /data /books /audiobooks \
- && chown 1000:1000 /config /data /books /audiobooks
+RUN mkdir -p /config /data /books /audiobooks /inbox \
+ && chown 1000:1000 /config /data /books /audiobooks /inbox
 VOLUME ["/config", "/data"]
 EXPOSE 8000
 USER 1000:1000

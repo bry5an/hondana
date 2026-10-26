@@ -66,6 +66,7 @@ drive that isn't mounted shows up as missing rather than as an empty library.
 | `epub_dir` | `<home>/books` | The folder of `.epub` files, scanned recursively. Books added on **Add** are filed into its `Japanese/` or `English/` subfolder. |
 | `data_dir` | `<home>/data` | Where every generated index, cover, per-profile file and saved setting is written. Back it up (see [running-a-server.md](running-a-server.md#backups)). Can't be changed from the web app. |
 | `audiobook_dirs` | `["<home>/audiobooks"]` | Folders scanned for audiobooks: `.m4b` files, or a folder of `.mp3`s as one book. The first entry is the *canonical root* that `consolidate` moves files into. In an environment variable, separate folders with `:` (`;` on Windows) or give a JSON list. |
+| `[inbox] dir` | unset (off) | A folder to drop new EPUBs and audiobooks into. They are filed once they've stopped changing for a minute; see [the inbox folder](audiobooks.md#the-inbox-folder). Can't be inside the EPUB or audiobook folders. Applies at once. |
 | `audiobook_data` | `<data_dir>/audiobook_catalog_base.json` | Optional base layer of the audiobook catalog, keyed by Audible ASIN. Leave it absent to start empty (see [audiobooks.md](audiobooks.md)). |
 | `audiobook_natively` | `<data_dir>/natively_levels.json` | Natively levels for the audiobook catalog, written by `enrich-audiobooks`. |
 | `dicts_dir` | `<data_dir>/dicts` | Your Yomitan dictionary zips, served to Hondana for iPhone. |

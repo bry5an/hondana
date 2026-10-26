@@ -66,6 +66,9 @@ class Config:
     # split like a POSIX shell, a list is the argv as written (Windows paths).
     subplz_cmd: str | list[str] = ""
 
+    # A folder to drop new EPUBs and audiobooks into (inbox.py); None = no inbox.
+    inbox_dir: Path | None = None
+
     # Bonjour advertisement of the server for the iOS app (discovery.py).
     # `discovery_advertise_port` is the port to announce when the app sits behind a
     # proxy (host 127.0.0.1); None = the bind port, and no advert on a loopback bind.

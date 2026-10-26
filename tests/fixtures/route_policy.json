@@ -1,5 +1,6 @@
 {
  "DELETE /api/admin/dicts/{file}": "admin",
+ "DELETE /api/audiobooks/uploads/{upload_id}": "admin",
  "DELETE /api/audiobooks/{ab_id}": "admin",
  "DELETE /api/audiobooks/{ab_id}/cover": "admin",
  "DELETE /api/audiobooks/{ab_id}/match": "admin",
@@ -23,6 +24,7 @@
  "GET /api/audiobook-catalog/search": "open",
  "GET /api/audiobooks": "open",
  "GET /api/audiobooks/hidden": "open",
+ "GET /api/audiobooks/uploads/{upload_id}": "admin",
  "GET /api/audiobooks/{ab_id}/details": "open",
  "GET /api/audiobooks/{ab_id}/match": "open",
  "GET /api/auth/state": "open",
@@ -38,6 +40,7 @@
  "GET /api/connect": "open",
  "GET /api/connect/qr.svg": "open",
  "GET /api/genres": "open",
+ "GET /api/inbox": "admin",
  "GET /api/known-words": "open",
  "GET /api/known-words/frequent": "open",
  "GET /api/known-words/seed/preview": "open",
@@ -79,6 +82,8 @@
  "POST /api/admin/run/{stage}": "admin",
  "POST /api/audiobooks/hide": "admin",
  "POST /api/audiobooks/unhide": "admin",
+ "POST /api/audiobooks/uploads": "admin",
+ "POST /api/audiobooks/uploads/{upload_id}/complete": "admin",
  "POST /api/audiobooks/{ab_id}/cover": "admin",
  "POST /api/audiobooks/{ab_id}/details": "admin",
  "POST /api/audiobooks/{ab_id}/match": "admin",
@@ -117,6 +122,7 @@
  "POST /api/series/rename": "admin",
  "POST /api/settings/check-path": "admin",
  "POST /api/upload": "admin",
+ "PUT /api/audiobooks/uploads/{upload_id}": "admin",
  "PUT /api/reader/anki-note-type": "open",
  "PUT /api/settings": "admin"
 }

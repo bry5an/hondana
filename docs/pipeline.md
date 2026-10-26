@@ -22,6 +22,7 @@ the Admin page are both generated from it.
 
 | Stage (CLI) | Admin label | What it does | Writes |
 |---|---|---|---|
+| `inbox` | File the inbox | Moves new EPUBs and audiobooks out of the [inbox folder](audiobooks.md#the-inbox-folder) into the library, then scans what it filed. Does nothing when no inbox is set. First, so the stages after it index what it filed. | `epub_dir`, `audiobook_dirs` |
 | `scan` | Scan EPUBs | Reads each EPUB's metadata and cover, then rebuilds the index. | `epub_library.json`, `covers/` |
 | `analyze` | Analyze vocab | Tokenizes each Japanese book (MeCab/UniDic) and counts its vocabulary. About 1–2 s a book. | `vocab_epub.json`, `wordlists/`, `sentences/` |
 | `enrich` | Enrich (Natively) | Looks up each Japanese book's level and ratings on learnnatively.com. | `natively_epub.json` |
@@ -42,6 +43,8 @@ the stored vocabulary whenever a known-words list or a read book changes, in abo
   result as soon as the analysis lands.
 - **Admin › Scan EPUBs** also queues that chain for every Japanese or English book that hasn't
   been analyzed, so books you copied into the folder by hand get their numbers too.
+- With an inbox folder set, the server files what lands there on its own (every 30 seconds, once it
+  has stopped changing). `inbox` is the same thing for the command line.
 - Re-run **Run full pipeline** after adding audiobooks, or to retry lookups.
 
 ## Stages outside the chain

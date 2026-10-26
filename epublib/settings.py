@@ -79,6 +79,11 @@ KEYS: tuple[Key, ...] = (
         "Audiobook folders", "audiobooks",
         "Folders scanned for audiobooks: .m4b files, or a folder of .mp3s as one book. "
         "The first is where new audiobooks are filed."),
+    Key("inbox.dir", "inbox_dir", "optpath", None, "Inbox folder", "audiobooks",
+        "Optional. Drop EPUBs, audiobooks (.m4b, .mp3, a folder of tracks, or a .zip of one) "
+        "into this folder and Hondana files them into your library once they've stopped "
+        "changing for a minute. Files are moved, not copied; ones it can't file go to its "
+        "_failed folder with a note. It can't be inside a library folder."),
     Key("audiobook_data", "audiobook_data", "path",
         lambda c: c.data_dir / "audiobook_catalog_base.json", "Base audiobook catalog", "advanced",
         "Optional hand-curated catalog keyed by Audible ASIN.", file_only=True),
@@ -339,6 +344,8 @@ def validate(key: Key, value) -> str | None:
 
     if key.kind == "path":
         return None if value.is_dir() else f"No folder at {value}"
+    if key.kind == "optpath":
+        return None if value is None or value.is_dir() else f"No folder at {value}"
     if key.kind == "paths":
         if not value:
             return "Give at least one folder"
@@ -368,7 +375,9 @@ def validate(key: Key, value) -> str | None:
     return None
 
 
-def load(path: Path | str | None = None) -> Config:
+def load(path: Path | str | None = None, overlay: dict | None = None) -> Config:
+    """The effective configuration. `overlay` stands in for the saved GUI values (to try a
+    change before writing it); None reads `settings.json`."""
     cfg_path = find_config(path)
     home_env = os.environ.get("HONDANA_HOME")
     home = (Path(home_env).expanduser().resolve() if home_env
@@ -409,7 +418,8 @@ def load(path: Path | str | None = None) -> Config:
     # data_dir first: the overlay and several defaults live under it.
     resolve(BY_NAME["data_dir"], {})
     ctx.data_dir = values["data_dir"]
-    overlay = read_overlay(ctx.data_dir)
+    if overlay is None:
+        overlay = read_overlay(ctx.data_dir)
     for unknown in sorted(set(overlay) - set(BY_NAME)):
         print(f"settings: ignoring unknown saved setting {unknown!r}", file=sys.stderr)
     for key in KEYS:

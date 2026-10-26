@@ -120,6 +120,12 @@ server {
 Keep `Range` requests working (the defaults do). The phone resumes audiobook and dictionary
 downloads with them.
 
+**Audiobook uploads** from the web app are sent in 16 MB chunks, so they are not stopped by the
+`2g` limit above, but by anything lower than 16 MB. nginx's default, `client_max_body_size 1m`,
+answers 413 to every chunk; the page notices, retries with smaller chunks (down to 256 KB) and gets
+the file through, only more slowly. Setting the limit to at least `16m` avoids that. Because a chunk is
+a short request, `proxy_read_timeout` and buffering matter far less than they do for one huge upload.
+
 **HTTPS on a home network** needs a certificate your phone trusts. A `home.arpa` name can't get a
 public certificate, and installing your own certificate authority on every phone is fiddly. For
 HTTPS, the Tailscale route below is easier. Hondana for iPhone allows plain `http://` to IP
@@ -155,4 +161,4 @@ the phone on your home network and use any of the options above.
 | The name works on the laptop but not the phone | The phone isn't using your DNS server (Private Relay, custom DNS). See option 3. |
 | The name works in Safari but not in Hondana for iPhone | iOS blocks plain `http://` to names that aren't local (`.home.arpa`, your own domain). Use the IP or `.local` name in the app, or HTTPS. |
 | `Connection refused` from other devices | `host` is `127.0.0.1` without a proxy, or a firewall blocks the port. |
-| Uploads fail with 413 behind a proxy | Raise the proxy's body size limit (`client_max_body_size`, `request_body max_size`). |
+| Uploads fail with 413 behind a proxy | Raise the proxy's body size limit (`client_max_body_size`, `request_body max_size`). Audiobook chunks are 16 MB: a lower limit works, slowly. |
