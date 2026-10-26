@@ -1,5 +1,7 @@
 """The Hondana iOS reader's state routes: GET /api/reader/vocab (the
 profile's effective known set, with an ETag) and GET /api/reader/progress."""
+import time
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -119,7 +121,7 @@ def test_an_empty_profile_returns_empty_sets(server, client):
 
 def test_progress_returns_every_entry_for_the_profile_only(server, client):
     cfg = server.cfg
-    assert client.get("/api/reader/progress").json() == {"progress": {}, "audio": {}}
+    assert client.get("/api/reader/progress").json() == {"progress": {}, "audio": {}, "bookmarks": {}}
 
     entries = {
         "asin:B000": {"book_id": A, "sha256": "ab" * 32, "cfi": "epubcfi(/6/4!/4/2)",
@@ -129,11 +131,11 @@ def test_progress_returns_every_entry_for_the_profile_only(server, client):
     }
     save_json(cfg.reader_progress, entries)
     r = client.get("/api/reader/progress")
-    assert r.status_code == 200 and r.json() == {"progress": entries, "audio": {}}
+    assert r.status_code == 200 and r.json() == {"progress": entries, "audio": {}, "bookmarks": {}}
 
     ben = profiles.create(cfg, "Ben", "ja")["slug"]
     ben_client = TestClient(server.app, cookies={profiles.COOKIE_NAME: ben})
-    assert ben_client.get("/api/reader/progress").json() == {"progress": {}, "audio": {}}
+    assert ben_client.get("/api/reader/progress").json() == {"progress": {}, "audio": {}, "bookmarks": {}}
 
 
 # ── POST /api/reader/events ───────────────────────────────────────────
@@ -389,3 +391,51 @@ def test_a_mark_sent_from_a_packs_orth_makes_that_word_known_by_known_mask(serve
     _post(client, [_status(100 + i, w[0], "unknown", ts=2000.0, lemma=w[1]) for i, w in enumerate(content)])
     studied, lemma = known.load_sets(cfg)
     assert not any(known.known_mask(defs, studied, lemma))
+
+
+# ── bookmarks ──────────────────────────────────────────────────────────
+
+def _bookmark(n, ts, op="put", **fields):
+    return {"id": f"m{n}", "ts": ts, "type": "bookmark", "bookmark_id": "bm1", "op": op,
+            "stable_key": "asin:B0", "book_id": A, "doc": 12, "sent": 64, "cfi": "epubcfi(/6/26!/4/2)",
+            "fraction": 0.7, "ab_id": "B0AUDIO001", "track": 0, "seconds": 19901.0,
+            "chapter": "四", "snippet": "と、尋ねた。", "source": "listening", **fields}
+
+
+def test_a_bookmark_is_kept_with_both_places_and_comes_back_with_progress(server, client):
+    r = _post(client, [_bookmark(1, 1000.0)])
+    assert r["rejected"] == []
+    got = client.get("/api/reader/progress").json()["bookmarks"]["bm1"]
+    assert got["doc"] == 12 and got["sent"] == 64 and got["cfi"] == "epubcfi(/6/26!/4/2)"
+    assert got["ab_id"] == "B0AUDIO001" and got["seconds"] == 19901.0 and got["snippet"] == "と、尋ねた。"
+    assert got["created_at"] == got["updated_at"]
+
+
+def test_bookmarks_take_the_newest_and_a_delete_leaves_a_tombstone(server, client):
+    now = time.time()
+    _post(client, [_bookmark(1, now)])
+    _post(client, [_bookmark(2, now + 10, note="good bit")])
+    _post(client, [_bookmark(3, now + 5, note="older")])             # late, older: ignored
+    got = client.get("/api/reader/progress").json()["bookmarks"]["bm1"]
+    assert got["note"] == "good bit" and got["created_at"] < got["updated_at"]
+    _post(client, [_bookmark(4, now + 20, op="delete")])
+    assert client.get("/api/reader/progress").json()["bookmarks"]["bm1"] == {
+        "deleted": True, "updated_at": reader_mod.iso(now + 20)}
+    _post(client, [_bookmark(5, now + 15)])                          # a put from before the delete
+    assert client.get("/api/reader/progress").json()["bookmarks"]["bm1"]["deleted"]
+
+
+def test_old_tombstones_are_forgotten(server, client):
+    _post(client, [_bookmark(1, 1000.0, op="delete")])
+    _post(client, [{**_bookmark(2, 2000.0), "bookmark_id": "bm2"}])
+    assert set(client.get("/api/reader/progress").json()["bookmarks"]) == {"bm2"}  # 1970's tombstone is long gone
+
+
+def test_bookmarks_are_per_profile_and_checked(server, client):
+    _post(client, [_bookmark(1, 1000.0)])
+    ben = profiles.create(server.cfg, "Ben", "ja")["slug"]
+    ben_client = TestClient(server.app, cookies={profiles.COOKIE_NAME: ben})
+    assert ben_client.get("/api/reader/progress").json()["bookmarks"] == {}
+    r = _post(client, [{**_bookmark(2, 1.0), "snippet": "x" * 201}, {**_bookmark(3, 1.0), "bookmark_id": ""}])
+    assert [x["id"] for x in r["rejected"]] == ["m2", "m3"]
+

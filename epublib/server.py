@@ -905,10 +905,11 @@ def api_reader_vocab(request: Request, req_cfg: Config = Depends(_request_cfg)) 
 
 @app.get("/api/reader/progress")
 def api_reader_progress(req_cfg: Config = Depends(_request_cfg)) -> JSONResponse:
-    """Every reading position this profile has synced, by stable key, and every
-    audiobook position, by ab_id."""
+    """Every reading position this profile has synced, by stable key, every
+    audiobook position, by ab_id, and its bookmarks, by id, deletions included."""
     return JSONResponse({"progress": reader_mod.load_progress(req_cfg),
-                         "audio": reader_mod.load_audio_progress(req_cfg)},
+                         "audio": reader_mod.load_audio_progress(req_cfg),
+                         "bookmarks": reader_mod.load_bookmarks(req_cfg)},
                         headers={"Cache-Control": "no-cache"})
 
 
@@ -1158,6 +1159,7 @@ async def api_reader_events(
             reader_mod.append_lookups(req_cfg, events["lookup"])
             reader_mod.merge_progress(req_cfg, events["progress"])
             reader_mod.merge_audio_progress(req_cfg, events["audio_progress"])
+            reader_mod.merge_bookmarks(req_cfg, events["bookmark"])
             tag = reader_mod.etag(req_cfg)
         rejected += _record_anchors(events["sync_anchor"], req_cfg.active_user)
         return {"status": "ok", "skipped": skipped, "rejected": rejected,

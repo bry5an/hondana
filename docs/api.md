@@ -76,7 +76,7 @@ the result on the page. These routes exist for it:
 | `GET /api/reader/books/{id}/pack` | The book's **annotation pack**: every token's position (UTF-16 offsets into each spine document's text), its dictionary form, reading and furigana, and the sentence spans. Gzip, with an ETag. 409 `{reason: drm\|not_ja\|no_text}` when there can't be one. |
 | `GET /api/reader/vocab` | The profile's known, learning and ignored words plus exposure counts, which colour the words (ETag). |
 | `POST /api/reader/events` | The phone's outbox: word status changes, lookups and reading positions, replayed in batches of up to 1000. Idempotent. |
-| `GET /api/reader/progress` | The profile's reading positions, by the book's stable key (`progress`), and where it is in each audiobook, by `ab_id` (`audio`). |
+| `GET /api/reader/progress` | The profile's reading positions, by the book's stable key (`progress`), where it is in each audiobook, by `ab_id` (`audio`), and its bookmarks, by id (`bookmarks`; a deleted one is `{deleted: true, updated_at}` for 90 days). |
 | `GET /api/reader/dicts`, `GET /api/reader/dicts/{file}` | The Yomitan dictionary zips in `dicts_dir`, with a manifest. |
 | `POST /api/admin/dicts`, `DELETE /api/admin/dicts/{file}` | Add a Yomitan zip (multipart `file`, up to 1 GB; 400 unless it is a `.zip` with an `index.json`; a zip of the same name is replaced) or delete one from the manifest. Behind the Admin page's Dictionaries card. |
 | `GET /api/reader/books/{id}/alignment` | The sentence → time map for audiobook sync ([audio-sync.md](audio-sync.md)). |

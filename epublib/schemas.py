@@ -294,8 +294,32 @@ class SyncAnchorEvent(_ReaderEvent):
     op: Literal["set", "clear"] = "set"
 
 
+class BookmarkEvent(_ReaderEvent):
+    """A bookmark made, changed or removed on the iOS reader. It carries a place in the text
+    (`doc`/`sent`, the page's `cfi` and `fraction`) and, when the book has an audiobook, in the audio
+    (`ab_id`, `track`, `seconds`), so it opens in either. `op: delete` removes it. Per profile."""
+    type: Literal["bookmark"]
+    bookmark_id: str = Field(min_length=1, max_length=64)
+    op: Literal["put", "delete"] = "put"
+    stable_key: str = ""
+    book_id: str = ""
+    sha256: str = ""
+    doc: int | None = Field(default=None, ge=0)
+    sent: int | None = Field(default=None, ge=0)
+    cfi: str = ""
+    fraction: float = Field(default=0.0, ge=0.0, le=1.0)
+    ab_id: str = ""
+    track: int = Field(default=0, ge=0)
+    seconds: float | None = Field(default=None, ge=0.0, allow_inf_nan=False)
+    chapter: str = Field(default="", max_length=200)
+    snippet: str = Field(default="", max_length=200)
+    note: str = Field(default="", max_length=1000)
+    source: str = Field(default="", max_length=20)
+
+
 ReaderEvent = Annotated[
-    StatusEvent | LookupEvent | ProgressEvent | AudioProgressEvent | SyncAnchorEvent, Field(discriminator="type")]
+    StatusEvent | LookupEvent | ProgressEvent | AudioProgressEvent | SyncAnchorEvent | BookmarkEvent,
+    Field(discriminator="type")]
 READER_EVENT = TypeAdapter(ReaderEvent)
 
 

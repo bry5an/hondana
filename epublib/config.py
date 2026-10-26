@@ -187,6 +187,11 @@ class Config:
         return self.users_dir / self.active_user / "audio_progress.json"
 
     @property
+    def reader_bookmarks(self) -> Path:
+        """Bookmarks synced from the iOS reader, by bookmark id, deletions kept a while (reader.py)."""
+        return self.users_dir / self.active_user / "bookmarks.json"
+
+    @property
     def anki_note_type(self) -> Path:
         """The note type the iOS reader sends cards to, as the phone described it (anki_notetype.py)."""
         return self.users_dir / self.active_user / "anki_note_type.json"

@@ -35,6 +35,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import time
 import unicodedata
 from datetime import datetime, timezone
 
@@ -60,6 +61,11 @@ def load_progress(cfg: Config) -> dict[str, dict]:
 def load_audio_progress(cfg: Config) -> dict[str, dict]:
     """ab_id → {track, seconds, updated_at}."""
     return dict(load_json(cfg.reader_audio_progress, {}))
+
+
+def load_bookmarks(cfg: Config) -> dict[str, dict]:
+    """bookmark id → its fields and `updated_at`; a deleted one is `{deleted: true, updated_at}`."""
+    return dict(load_json(cfg.reader_bookmarks, {}))
 
 
 def _stamp(path) -> str:
@@ -129,7 +135,8 @@ def parse_events(raw: list[dict]) -> tuple[dict[str, list[dict]], list[dict]]:
     """Validate a batch event by event. Returns the good ones grouped by type,
     each as a plain dict with `ts` in Unix seconds, and the rejected ones as
     `{id, reason}`."""
-    good: dict[str, list[dict]] = {"status": [], "lookup": [], "progress": [], "audio_progress": [], "sync_anchor": []}
+    good: dict[str, list[dict]] = {"status": [], "lookup": [], "progress": [], "audio_progress": [], "sync_anchor": [],
+                                   "bookmark": []}
     rejected: list[dict] = []
     for item in raw:
         eid = item.get("id") if isinstance(item.get("id"), str) else None
@@ -292,3 +299,34 @@ def merge_audio_progress(cfg: Config, events: list[dict]) -> int:
     if changed:
         save_json(cfg.reader_audio_progress, stored)
     return changed
+
+
+BOOKMARK_TOMBSTONE_DAYS = 90  # a deletion is kept this long, so a phone that was away hears of it
+_BOOKMARK_FIELDS = ("stable_key", "book_id", "sha256", "doc", "sent", "cfi", "fraction", "ab_id", "track",
+                    "seconds", "chapter", "snippet", "note", "source")
+
+
+def merge_bookmarks(cfg: Config, events: list[dict]) -> int:
+    """Last write wins by `ts`, per bookmark id; a delete leaves a tombstone for
+    BOOKMARK_TOMBSTONE_DAYS so other devices drop their copy. Returns how many changed."""
+    newest = collapse(events, "bookmark_id")
+    stored = load_bookmarks(cfg)
+    changed = 0
+    for key, e in newest.items():
+        have = stored.get(key)
+        if have and parse_ts(have["updated_at"]) >= e["ts"]:
+            continue
+        if e.get("op") == "delete":
+            stored[key] = {"deleted": True, "updated_at": iso(e["ts"])}
+        else:
+            stored[key] = {**{f: e.get(f) for f in _BOOKMARK_FIELDS}, "created_at": (have or {}).get("created_at") or iso(e["ts"]),
+                           "updated_at": iso(e["ts"])}
+        changed += 1
+    cutoff = time.time() - BOOKMARK_TOMBSTONE_DAYS * 86400
+    stale = [k for k, v in stored.items() if v.get("deleted") and parse_ts(v["updated_at"]) < cutoff]
+    for k in stale:
+        del stored[k]
+    if changed or stale:
+        save_json(cfg.reader_bookmarks, stored)
+    return changed
+
