@@ -210,7 +210,7 @@ def test_a_book_goes_from_none_to_ready(live, mac):
                                               "step": None, "error": None,
                                               "eligible": True, "can_generate": False,
                                               "source": "synced", "estimated": 0, "anchors": 0,
-                                              "accepts": ["synced", "transcript"]}
+                                              "speech_gaps": None, "speech_gap_s": None, "accepts": ["synced", "transcript"]}
     served = live.json("/api/reader/books/b1/alignment")
     assert served["docs"][0]["sents"][0] == [0, 4000] and served["matched"] == len(SENTENCES)
     assert not (mac[1] / live.host / "b1").exists()  # a finished run clears its cache

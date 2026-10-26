@@ -17,6 +17,7 @@ Usage: hondana <command> [--config PATH]   (or `uv run cli.py …` from a checko
     consolidate [--execute]   unify audiobook dirs (dry-run default)
     recover-moves   re-attach curated state orphaned by moving a file between folders
     gc [--apply]    report (and with --apply remove) data left behind by books no longer in the library
+    align-audit [book_id …]   check alignment maps against their audio for gaps the narrator talks through (runs ffmpeg)
     align-remote <book>|--missing   align a server's audiobook on this machine's GPU (SubPlz) and upload the SRT
 
 Each stage is resume-safe; re-running only does the new/changed work.
@@ -30,7 +31,9 @@ import sys
 import time
 from pathlib import Path
 
+from epublib import align as align_mod
 from epublib import align_remote as align_remote_mod
+from epublib import annotate as annotate_mod
 from epublib import audiobook_scanner as audiobook_scanner_mod
 from epublib import build as build_mod
 from epublib import config as config_mod
@@ -116,6 +119,33 @@ def cmd_gc(args):
     cfg = _cfg(args)
     library = load_json(cfg.library_index, {})
     orphans_mod.run(cfg, library, do_apply=args.apply)
+
+
+def cmd_align_audit(args):
+    """Check alignment maps against their audio for gaps the narrator talks through."""
+    cfg = _cfg(args)
+    library = load_json(cfg.library_index, {})
+    ids = args.book or [b for b in library if align_mod.map_path(cfg, b).exists()
+                        or align_mod.source_kind(cfg, b, None)]
+    worst = 0
+    for book_id in ids:
+        book = library.get(book_id)
+        if not book:
+            print(f"{book_id}: not in the library", file=sys.stderr)
+            continue
+        try:
+            m = align_mod.audit(cfg, book)
+        except (RuntimeError, align_mod.AlignError, annotate_mod.NoPack) as exc:
+            print(f"{book_id}: {exc}", file=sys.stderr)
+            continue
+        if m is None:
+            print(f"{book_id}  {book.get('title')}: no alignment, or its audiobook isn't on this machine")
+            continue
+        q = m["quality"]
+        worst = max(worst, q["speech_gaps"])
+        print(f"{book_id}  {book.get('title')}: {m['source']}, coverage {m['coverage']:.1%}, "
+              f"{q['speech_gaps']} gaps with speech ({q['speech_gap_s'] / 60:.1f} min)")
+    return 1 if worst >= args.fail_at else 0
 
 
 def cmd_align_remote(args):
@@ -387,6 +417,15 @@ def main(argv=None):
         help="Delete the orphaned data, including curated state (read status, overrides)",
     )
     p_gc.set_defaults(func=cmd_gc)
+
+    p_aa = sub.add_parser(
+        "align-audit",
+        help="Check alignment maps against their audio for gaps the narrator talks through (runs ffmpeg)",
+    )
+    p_aa.add_argument("book", nargs="*", help="book_ids (default: every book with an alignment)")
+    p_aa.add_argument("--fail-at", type=int, default=10, metavar="N",
+                      help="exit non-zero when a book has N or more such gaps (default 10)")
+    p_aa.set_defaults(func=cmd_align_audit)
 
     p_ar = sub.add_parser(
         "align-remote",

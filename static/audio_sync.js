@@ -56,6 +56,19 @@ function syncActionHtml(st, label) {
     : syncCommandHtml(st);
 }
 
+// What the map is worth beyond its coverage: gaps the narrator talks through, a map made
+// without a transcript (it can drift), and fixes listeners made in the app.
+function syncQualityHtml(st) {
+  const notes = [];
+  if (st.speech_gaps) {
+    const min = Math.round((st.speech_gap_s || 0) / 6) / 10;
+    notes.push(`${st.speech_gaps} ${st.speech_gaps === 1 ? "stretch" : "stretches"} (${min} min) where the narrator speaks but the sync has nothing`);
+  }
+  if (st.source === "synced") notes.push("made without a transcript, so it can drift; redoing it from one fixes that");
+  if (st.anchors) notes.push(`${st.anchors} ${st.anchors === 1 ? "fix" : "fixes"} from the app`);
+  return notes.length ? `<p class="ab-note">${notes.map(esc).join(" · ")}</p>` : "";
+}
+
 function syncBodyHtml(st) {
   const err = st.error
     ? `<p class="sync-err" role="alert">The last run failed: ${esc(st.error)}</p>`
@@ -70,8 +83,9 @@ function syncBodyHtml(st) {
     const line = st.ok
       ? `<span class="sync-ok">${icon("check")}</span> Synced with the audiobook · ${esc(syncPct(st))}`
       : `<span class="sync-warn">${icon("warning")}</span> Only ${esc(syncPct(st))} matched; the app won't highlight`;
-    return `<div class="sync-head"><p class="sync-line">${line}</p>${menu}</div>${err}
-      ${st.ok && !st.error ? "" : syncActionHtml(st, st.ok ? "Try again" : "Sync again")}`;
+    const redo = st.source === "synced" || st.speech_gaps > 0;
+    return `<div class="sync-head"><p class="sync-line">${line}</p>${menu}</div>${syncQualityHtml(st)}${err}
+      ${st.ok && !st.error && !redo ? "" : syncActionHtml(st, !st.ok ? "Sync again" : redo ? "Redo from a transcript" : "Try again")}`;
   }
   if (st.state === "stale") {
     return `<div class="sync-head"><p class="sync-line"><span class="sync-warn">${icon("warning")}</span>

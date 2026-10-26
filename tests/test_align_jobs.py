@@ -110,7 +110,8 @@ def test_a_run_stores_the_same_files_as_an_upload(rig):
     jobs.enqueue(book, "B0AUDIO001", None, _audio(audio_dir, "book.m4b"))
     assert _wait(jobs, "b1", "done", "error")["state"] == "done"
     assert align.state(cfg, book, "B0AUDIO001") == {"state": "ready", "coverage": 1.0, "ok": True,
-                                                     "source": "synced", "estimated": 0, "anchors": 0}
+                                                     "source": "synced", "estimated": 0, "anchors": 0,
+                                                     "speech_gaps": None, "speech_gap_s": None}
     m = json.loads(align.map_path(cfg, "b1").read_text("utf-8"))
     assert m["docs"][0]["sents"][0] == [0, 4000] and m["matched"] == len(SENTENCES)
     assert align._srt_path(cfg, "b1").exists()

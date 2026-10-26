@@ -431,7 +431,8 @@ def test_state_reports_none_ready_and_stale(cfg):
     book = _book(cfg)
     assert align.state(cfg, book, "B0AUDIO001")["state"] == "none"
     align.ingest(cfg, book, "B0AUDIO001", None, srt_for(SENTENCES))
-    assert align.state(cfg, book, "B0AUDIO001") == {"state": "ready", "coverage": 1.0, "ok": True, "source": "synced", "estimated": 0, "anchors": 0}
+    assert align.state(cfg, book, "B0AUDIO001") == {"state": "ready", "coverage": 1.0, "ok": True, "source": "synced", "estimated": 0, "anchors": 0,
+                                                     "speech_gaps": None, "speech_gap_s": None}
     assert align.state(cfg, book, "B0OTHER0002")["state"] == "stale"
     assert align.state(cfg, {**book, "sha256": "00" * 32}, "B0AUDIO001")["state"] == "stale"
 
@@ -502,7 +503,7 @@ def test_post_then_get_serves_the_map_with_an_etag_and_a_304(client):
     st = client.get("/api/books/b1/status").json()["alignment"]
     assert st == {"state": "ready", "coverage": 1.0, "ok": True, "step": None, "error": None,
                   "eligible": True, "can_generate": False, "source": "synced", "estimated": 0, "anchors": 0,
-                  "accepts": ["synced", "transcript"]}
+                  "speech_gaps": None, "speech_gap_s": None, "accepts": ["synced", "transcript"]}
 
     raw = client.get("/api/reader/books/b1/alignment.srt")
     assert raw.status_code == 200 and raw.text.startswith("1\n00:00:00,000 --> 00:00:04,000")

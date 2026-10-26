@@ -149,6 +149,8 @@ class AlignmentState(BaseModel):
     estimated: int | None = None  # sentences whose time is estimated, not heard
     accepts: list[str] = []  # the SRT kinds an upload may be: synced, transcript
     anchors: int = 0  # listeners' fixes in the map
+    speech_gaps: int | None = None  # gaps of 5 s+ the narrator talks through; None until audited
+    speech_gap_s: float | None = None  # ... and their total length
 
 
 class AlignmentQueueBook(BaseModel):

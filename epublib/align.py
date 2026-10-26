@@ -60,7 +60,7 @@ from dataclasses import dataclass
 from difflib import SequenceMatcher
 from pathlib import Path
 
-from . import annotate
+from . import annotate, speech
 from .config import Config
 from .index_store import write_bytes_atomic
 
@@ -820,7 +820,9 @@ def _rebuild(cfg: Config, book: dict, ab_id: str, files: list[str] | None, sha: 
         # The fixes in it: the phone stops applying its own once the server has them, and a
         # map with this key is one from a server that takes them.
         "anchors": [[d, s, part, ms] for (d, s), (part, ms) in sorted(fixes.items()) if (d, s) in where],
-        "anchors_sha": _anchors_sha(cfg, book["book_id"]), "docs": out_docs,
+        "anchors_sha": _anchors_sha(cfg, book["book_id"]),
+        # Gaps the narrator talks through, once `audit` has listened.
+        "quality": speech.quality(out_docs, speech.load(cfg, book["book_id"])), "docs": out_docs,
     }
     write_bytes_atomic(map_path(cfg, book["book_id"]),
            json.dumps(result, ensure_ascii=False, separators=(",", ":")).encode("utf-8"))
@@ -901,6 +903,40 @@ def ensure(cfg: Config, book: dict, ab_id: str | None, files: list[str] | None) 
         return _rebuild(cfg, book, ab_id, files, sha)
 
 
+def audio_files(cfg: Config, book: dict) -> tuple[str | None, list[str] | None, list[tuple[str | None, Path]]]:
+    """`(ab_id, mp3 names, [(part, path)])` of the book's linked audiobook on this machine, as the
+    server's routes find it; `(None, None, [])` when it isn't here."""
+    link = book.get("audiobook") or {}
+    ab_id = link.get("audible_isbn")
+    try:
+        entry = json.loads(cfg.audiobook_index.read_text("utf-8")).get(ab_id) if ab_id else None
+    except (OSError, ValueError):
+        entry = None
+    if not entry or not entry.get("local") or not link.get("audiobook_local"):
+        return None, None, []
+    base = next((d.resolve() for d in cfg.audiobook_dirs if str(d) == entry.get("root")), None)
+    if base is None:
+        return None, None, []
+    root = (base / entry["path"]).resolve()
+    if base != root and base not in root.parents:
+        return None, None, []
+    files = (entry.get("files") or None) if entry.get("format") == "mp3-folder" else None
+    return ab_id, files, [(f, root / f) for f in files] if files else [(None, root)]
+
+
+def audit(cfg: Config, book: dict, ffmpeg: str = "ffmpeg") -> dict | None:
+    """Listens to the book's audio for the gaps its map leaves and rebuilds the map with a
+    `quality` block. Minutes of ffmpeg for a long book: a CLI job, never a request. Returns the map,
+    or None when the book has no alignment or its audiobook isn't on this machine."""
+    ab_id, files, audio = audio_files(cfg, book)
+    if not ab_id or not _sources(cfg, book["book_id"], files):
+        return None
+    speech.check(cfg, book["book_id"], audio, ffmpeg)
+    with _book_lock(book["book_id"]):
+        map_path(cfg, book["book_id"]).unlink(missing_ok=True)
+    return ensure(cfg, book, ab_id, files)
+
+
 def state(cfg: Config, book: dict, ab_id: str | None, job: dict | None = None) -> dict:
     """What `GET /api/books/{id}/status` reports; reads only the stored map, never
     rebuilds. `state`: none | ready | stale (the book, the schema or the linked
@@ -910,13 +946,16 @@ def state(cfg: Config, book: dict, ab_id: str | None, job: dict | None = None) -
     since it never touches the stored alignment."""
     m = _load_map(cfg, book["book_id"])
     if m is None:
-        out = {"state": "none", "coverage": None, "ok": None, "source": None, "estimated": None, "anchors": 0}
+        out = {"state": "none", "coverage": None, "ok": None, "source": None, "estimated": None, "anchors": 0,
+               "speech_gaps": None, "speech_gap_s": None}
     else:
         fresh = (m.get("schema") == ALIGN_SCHEMA and m.get("audiobook") == ab_id
                  and m.get("sha256") == (book.get("sha256") or m.get("sha256")))
+        q = m.get("quality") or {}
         out = {"state": "ready" if fresh else "stale", "coverage": m.get("coverage"), "ok": m.get("ok"),
                "source": m.get("source", "synced"), "estimated": m.get("estimated"),
-               "anchors": len(m.get("anchors") or [])}
+               "anchors": len(m.get("anchors") or []),
+               "speech_gaps": q.get("speech_gaps"), "speech_gap_s": q.get("speech_gap_s")}
     if job and job["state"] in ("queued", "running"):
         out.update(state=job["state"], step=job.get("step"))
     elif job and job["state"] == "error":

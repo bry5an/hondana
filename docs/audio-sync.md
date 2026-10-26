@@ -180,6 +180,20 @@ afterwards, between the lines either side of them. A sentence no line covers get
 its heard neighbours when that reads at a speaking pace, and is listed in the map's `est`;
 otherwise it has none (front matter nobody reads, or music).
 
+### Checking a map against the audio
+
+Coverage only says how many sentences got a time, not whether the times are right. To check them,
+run this on the server (it needs the audio, and takes a minute or two of ffmpeg per book):
+
+```bash
+uv run cli.py align-audit            # every synced book
+uv run cli.py align-audit <book_id>  # one
+```
+
+It finds the gaps of five seconds or more between two sentences of a chapter where the narrator is
+talking. A good map has few and short ones; a map that lost the voice has dozens. The book page's
+Audio sync card shows the count, and offers to redo a map made without a transcript.
+
 ### Fixes from the phone
 
 Where a map is still wrong, Hondana for iPhone lets you long-press the follow button, choose Fix
