@@ -2,9 +2,13 @@
 talks through, the cache, and `align.audit` with a stand-in ffmpeg."""
 from __future__ import annotations
 
+import argparse
 import os
 import stat
+import subprocess
 import sys
+
+import pytest
 
 from epublib import align, speech
 from epublib.index_store import save_json
@@ -64,6 +68,54 @@ sys.stderr.write("[silencedetect] silence_start: 0.0\\n[silencedetect] silence_e
 """
 
 
+def test_ffmpeg_is_run_without_a_shell_and_read_as_utf8(monkeypatch, tmp_path):
+    seen = {}
+
+    def run(argv, **kw):
+        seen.update(argv=argv, kw=kw)
+        return subprocess.CompletedProcess(argv, 0, stdout="", stderr=STDERR)
+
+    monkeypatch.setattr(speech.subprocess, "run", run)
+    assert speech.detect_silences(tmp_path / "book.m4b", "ff") == [[3500, 4250], [40000, 60000]]
+    assert seen["argv"][0] == "ff" and str(tmp_path / "book.m4b") in seen["argv"]
+    assert seen["kw"]["encoding"] == "utf-8" and seen["kw"]["errors"] == "replace"
+    assert "shell" not in seen["kw"]
+
+
+def test_a_missing_ffmpeg_is_said_in_words(tmp_path):
+    with pytest.raises(RuntimeError, match="ffmpeg isn't installed"):
+        speech.detect_silences(tmp_path / "book.m4b", str(tmp_path / "no-such-ffmpeg"))
+
+
+def test_an_audio_file_that_is_gone_is_said_in_words(cfg, tmp_path):
+    with pytest.raises(RuntimeError, match="can't read .*gone.m4b"):
+        speech.check(cfg, "b1", [(None, tmp_path / "gone.m4b")])
+    assert not speech.silence_path(cfg, "b1").exists()
+
+
+def test_the_cli_reports_a_missing_ffmpeg_instead_of_a_traceback(cfg, tmp_path, capsys, monkeypatch):
+    from epublib import cli
+    root = tmp_path / "audiobooks"
+    root.mkdir()
+    (root / "book.m4b").write_bytes(b"OK")
+    cfg.audiobook_dirs = [root]
+    save_json(cfg.audiobook_index, {"B0AUDIO001": {"ab_id": "B0AUDIO001", "local": True, "format": "m4b",
+                                                    "root": str(root), "path": "book.m4b"}})
+    book = _book(cfg)
+    save_json(cfg.library_index, {"b1": book})
+    align.ingest(cfg, book, "B0AUDIO001", None, "\n".join(_cue(i + 1, i * 4000, (i + 1) * 4000, s)
+                                                           for i, s in enumerate(SENTENCES)))
+    def no_ffmpeg(*args, **kw):
+        raise FileNotFoundError("ffmpeg")
+
+    monkeypatch.setattr(cli, "_cfg", lambda args: cfg)
+    monkeypatch.setattr(speech.subprocess, "run", no_ffmpeg)
+    assert cli.cmd_align_audit(argparse.Namespace(book=[], fail_at=10, config=None)) == 0
+    err = capsys.readouterr().err
+    assert "ffmpeg isn't installed" in err and "Traceback" not in err
+
+
+@pytest.mark.skipif(os.name == "nt", reason="the stand-in ffmpeg is a #! script")
 def test_an_audit_puts_the_gaps_in_the_map_and_the_status(cfg, tmp_path):
     root = tmp_path / "audiobooks"
     root.mkdir()

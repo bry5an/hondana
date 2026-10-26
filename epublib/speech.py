@@ -18,6 +18,7 @@ import subprocess
 from pathlib import Path
 
 from .config import Config
+from .index_store import save_json
 
 NOISE_DB = -35      # quieter than this is silence
 MIN_SILENCE = 0.5   # seconds: shorter dips are inside speech
@@ -42,11 +43,16 @@ def parse_silences(stderr: str) -> list[list[int]]:
 
 
 def detect_silences(path: Path, ffmpeg: str = "ffmpeg") -> list[list[int]]:
-    """The silences of one audio file. Raises RuntimeError when ffmpeg can't read it."""
-    proc = subprocess.run(
-        [ffmpeg, "-hide_banner", "-nostdin", "-i", str(path), "-vn",
-         "-af", f"silencedetect=noise={NOISE_DB}dB:d={MIN_SILENCE}", "-f", "null", "-"],
-        capture_output=True, text=True, errors="replace")
+    """The silences of one audio file. Raises RuntimeError, with a message to show as it is, when
+    ffmpeg isn't installed or can't read it: nothing else in Hondana needs ffmpeg."""
+    try:
+        proc = subprocess.run(
+            [ffmpeg, "-hide_banner", "-nostdin", "-i", str(path), "-vn",
+             "-af", f"silencedetect=noise={NOISE_DB}dB:d={MIN_SILENCE}", "-f", "null", "-"],
+            capture_output=True, encoding="utf-8", errors="replace")
+    except FileNotFoundError:
+        raise RuntimeError(f"ffmpeg isn't installed (looked for {ffmpeg!r}): checking a map against "
+                           "its audio needs it, so install ffmpeg and run this again") from None
     if proc.returncode != 0:
         raise RuntimeError(f"ffmpeg couldn't read {path.name}: {proc.stderr.strip()[-300:]}")
     return parse_silences(proc.stderr)
@@ -75,7 +81,10 @@ def check(cfg: Config, book_id: str, audio: list[tuple[str | None, Path]], ffmpe
         cached = {}
     out, fresh = {}, False
     for part, file in audio:
-        st = file.stat()
+        try:
+            st = file.stat()
+        except OSError as exc:
+            raise RuntimeError(f"can't read {file}: {exc.strerror or exc}") from exc
         key = part or ""
         have = cached.get(key)
         if have and have.get("size") == st.st_size and have.get("mtime") == int(st.st_mtime):
@@ -83,8 +92,7 @@ def check(cfg: Config, book_id: str, audio: list[tuple[str | None, Path]], ffmpe
             continue
         out[key] = {"size": st.st_size, "mtime": int(st.st_mtime), "silences": detect_silences(file, ffmpeg)}
         fresh = True
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps({"audio": out}), encoding="utf-8")
+    save_json(path, {"audio": out})
     return fresh
 
 
