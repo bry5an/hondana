@@ -119,7 +119,8 @@ def cmd_gc(args):
 
 
 def cmd_align_remote(args):
-    """Fetch a server book's text and audio, run this machine's `subplz_cmd`, upload the SRTs."""
+    """Fetch a server book's text and audio, run this machine's `transcribe_cmd` (or
+    `subplz_cmd`), upload the SRTs."""
     ar = align_remote_mod
     if bool(args.book) == bool(args.missing):
         print("error: give a book (book_id or title) or --missing", file=sys.stderr)
@@ -134,7 +135,14 @@ def cmd_align_remote(args):
     except ar.RemoteError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
-    cmd = mine.get("subplz_cmd") or config_mod.load(args.config).subplz_cmd
+    if mine.get("transcribe_cmd") or mine.get("subplz_cmd"):
+        tx_cmd, sync_cmd = mine.get("transcribe_cmd", ""), mine.get("subplz_cmd", "")
+    else:
+        fallback = config_mod.load(args.config)
+        tx_cmd, sync_cmd = fallback.transcribe_cmd, fallback.subplz_cmd
+    # A transcript is what fixes drift, so it is the default once there is a command for it.
+    kind = args.kind or ("transcript" if tx_cmd else "synced")
+    cmd = tx_cmd if kind == "transcript" else sync_cmd
     audio = [Path(a).expanduser() for a in args.audio]
     audio_dir = Path(args.audio_dir).expanduser() if args.audio_dir else None
 
@@ -184,7 +192,7 @@ def cmd_align_remote(args):
         for n, p in enumerate(plans, 1):
             print(f"\n[{n}/{len(plans)}] {p.title}")
             try:
-                r = ar.align_book(server, p, cmd, force=args.force, keep_audio=args.keep_audio)
+                r = ar.align_book(server, p, cmd, kind=kind, force=args.force, keep_audio=args.keep_audio)
             except ar.RemoteError as exc:
                 failed += 1
                 print(f"error: {exc}", file=sys.stderr)
@@ -195,8 +203,10 @@ def cmd_align_remote(args):
                 print(r.skipped)
                 continue
             m = r.response
+            guessed = f", {m['estimated']} estimated" if m.get("estimated") else ""
             print(f"{'aligned' if m['ok'] else 'POOR MATCH'}: coverage {m['coverage']:.1%} "
-                  f"({m['matched']}/{m['total']} sentences) in {ar.human_time(r.seconds)}")
+                  f"({m['matched']}/{m['total']} sentences heard{guessed}; "
+                  f"{m.get('source', 'synced')}) in {ar.human_time(r.seconds)}")
             if not m["ok"]:
                 failed += 1
                 print("The server stored it but below the 90% the reader needs to highlight; "
@@ -380,7 +390,7 @@ def main(argv=None):
 
     p_ar = sub.add_parser(
         "align-remote",
-        help="Align a server's audiobook here: fetch its text and audio, run subplz_cmd, upload the SRT",
+        help="Align a server's audiobook here: fetch its text and audio, transcribe it, upload the SRT",
     )
     p_ar.add_argument("book", nargs="?", help="a book_id on the server, or a title substring")
     p_ar.add_argument("--token", default=None,
@@ -394,6 +404,10 @@ def main(argv=None):
     p_ar.add_argument("--run", action="store_true", help="with --missing: align them one after another")
     p_ar.add_argument("--dry-run", action="store_true", help="print the plan; start nothing")
     p_ar.add_argument("--force", action="store_true", help="redo a book that is already aligned")
+    p_ar.add_argument("--kind", choices=("transcript", "synced"), default=None,
+                      help="transcript: run transcribe_cmd (SubPlz gen) and upload what was heard; "
+                      "synced: run subplz_cmd (SubPlz sync). Default: transcript when transcribe_cmd is set. "
+                      "A book aligned from synced is redone by a transcript without --force")
     p_ar.add_argument("--audio", action="append", default=[], metavar="PATH",
                       help="use this copy of an audio file instead of downloading it "
                       "(matched by file name; repeatable)")

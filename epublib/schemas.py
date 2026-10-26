@@ -145,6 +145,9 @@ class AlignmentState(BaseModel):
     error: str | None = None  # the last SubPlz run failed; the stored alignment is untouched
     eligible: bool = False  # a Japanese book with its linked audiobook on this machine
     can_generate: bool = False  # [alignment] subplz_cmd can run on this server
+    source: str | None = None  # the map is made from a `transcript` (SubPlz gen) or a `synced` SRT
+    estimated: int | None = None  # sentences whose time is estimated, not heard
+    accepts: list[str] = []  # the SRT kinds an upload may be: synced, transcript
 
 
 class AlignmentQueueBook(BaseModel):
@@ -164,9 +167,11 @@ class AlignmentQueueResponse(BaseModel):
 class AlignmentIngestResponse(BaseModel):
     status: str
     audiobook: str
-    coverage: float
+    source: str  # transcript | synced: what the map is made from now
+    coverage: float  # heard + estimated sentences over total
     ok: bool
-    matched: int
+    matched: int  # sentences heard
+    estimated: int  # sentences timed between heard ones
     total: int
 
 

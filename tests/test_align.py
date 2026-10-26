@@ -231,6 +231,122 @@ def test_unmatched_sentences_keep_their_place_through_retime():
     assert out[25] is None and len(out) == 60
 
 
+def test_the_rows_retime_moved_are_listed_as_estimated():
+    squeezed = _squeeze(_paced([len(align.norm(s)) for s in SENTENCES]), 15, 30)
+    cues = [align.Cue(r[0], r[1], s) for r, s in zip(squeezed, SENTENCES)]
+    rows, est = align.match_synced(SENTENCES, cues)
+    assert est and est <= set(range(10, 31))
+    assert all(rows[i] == squeezed[i] for i in range(40) if i not in est)
+
+
+# ── plain transcripts ─────────────────────────────────────────────────
+
+def _heard(texts: list[str]) -> list[str]:
+    """What Whisper writes for these lines: no 。, and two of them to a cue."""
+    plain = [t.replace("。", "") for t in texts]
+    return [plain[i] + (plain[i + 1] if i + 1 < len(plain) else "") for i in range(0, len(plain), 2)]
+
+
+def test_a_transcript_grouped_its_own_way_times_every_sentence():
+    rows, est = align.match_transcript(SENTENCES, align.parse_srt(srt_for(_heard(SENTENCES), step=8000)))
+    assert all(rows) and not est
+    assert rows[0][0] == 0 and rows[1][1] == 8000 and rows[39][1] == 160000
+    assert all(a[1] <= b[0] + 1 for a, b in zip(rows, rows[1:]))
+
+
+def test_one_line_placed_wrongly_does_not_drag_the_lines_after_it():
+    """SubPlz sync's failure: a cursor that follows one wrong place
+    loses every line after it. The book says sentence 5 again at 30; a cue that fits
+    both copies must not take the far one and pull its neighbours along."""
+    book = SENTENCES[:30] + [SENTENCES[5]] + SENTENCES[30:]
+    rows, _ = align.match_transcript(book, align.parse_srt(srt_for(book)))
+    assert all(rows)
+    assert rows[5] == [20000, 24000] and rows[30] == [120000, 124000] and rows[31] == [124000, 128000]
+
+
+def test_a_stretch_whisper_dropped_is_estimated_between_the_lines_either_side():
+    cues = [c for i, c in enumerate(align.parse_srt(srt_for(SENTENCES))) if not 10 <= i < 14]
+    rows, est = align.match_transcript(SENTENCES, cues)
+    assert est == {10, 11, 12, 13}
+    assert rows[10][0] == 40000 and rows[13][1] == 56000              # the time the voice took
+    assert all(a[1] <= b[0] + 1 for a, b in zip(rows[9:15], rows[10:15]))
+
+
+def test_a_gap_too_long_for_the_sentence_is_left_unheard():
+    """A minute of music between two lines is not the one short line between them."""
+    texts = SENTENCES[:20] + SENTENCES[21:]
+    cues = align.parse_srt(srt_for(texts))
+    cues = cues[:20] + [align.Cue(c.start + 60000, c.end + 60000, c.text) for c in cues[20:]]
+    rows, est = align.match_transcript(SENTENCES, cues)
+    assert rows[20] is None and 20 not in est and rows[21][0] == 140000
+
+
+def test_unread_front_matter_and_a_publisher_intro_stay_unheard():
+    rows, est = align.match_transcript(SENTENCES, align.parse_srt(srt_for(["オーディブルがお届けします"] + SENTENCES[5:])))
+    assert rows[:5] == [None] * 5 and not est
+    assert rows[5] == [4000, 8000]
+
+
+def test_short_lines_are_placed_between_the_lines_around_them():
+    book = SENTENCES[:10] + ["はい。"] + SENTENCES[10:20] + ["はい。"] + SENTENCES[20:]
+    rows, est = align.match_transcript(book, align.parse_srt(srt_for(book)))
+    assert all(rows) and not est
+    assert rows[10] == [40000, 44000] and rows[21] == [84000, 88000]
+
+
+def test_transcript_parts_name_their_part_and_do_not_span_the_join():
+    one = align.parse_srt(srt_for(_heard(SENTENCES[:20]), step=8000), "a.mp3")
+    two = align.parse_srt(srt_for(_heard(SENTENCES[20:]), step=8000), "b.mp3")
+    rows, _ = align.match_transcript(SENTENCES, one + two)
+    assert rows[0][2] == "a.mp3" and rows[19][2] == "a.mp3" and rows[20] == [0, rows[20][1], "b.mp3"]
+
+
+def test_sync_output_is_told_from_a_transcript():
+    assert align.looks_synced(SENTENCES, align.parse_srt(srt_for(SENTENCES)))
+    assert not align.looks_synced(SENTENCES, align.parse_srt(srt_for(_heard(SENTENCES))))
+
+
+def test_a_transcript_is_stored_apart_and_the_map_is_made_from_it(cfg):
+    book = _book(cfg)
+    align.ingest(cfg, book, "B0AUDIO001", None, srt_for(SENTENCES[:30]))
+    m = align.ingest(cfg, book, "B0AUDIO001", None, srt_for(_heard(SENTENCES), step=8000), kind="transcript")
+    assert (cfg.alignments_dir / "b1.srt").exists() and (cfg.alignments_dir / "b1.transcript.srt").exists()
+    assert m["schema"] == 4 and m["source"] == "transcript" and m["matched"] == 40 and m["estimated"] == 0
+    assert m["docs"][0]["len"] == [len(align.norm(s)) for s in SENTENCES] and m["docs"][0]["est"] == []
+    assert align.state(cfg, book, "B0AUDIO001")["source"] == "transcript"
+    assert align.srt_bytes(cfg, "b1", None, None).decode().count("-->") == 20   # what the map is made from
+    assert align.srt_bytes(cfg, "b1", None, None, "synced").decode().count("-->") == 30
+
+
+def test_a_transcript_that_is_really_sync_output_is_refused(cfg):
+    book = _book(cfg)
+    with pytest.raises(align.AlignError) as e:
+        align.ingest(cfg, book, "B0AUDIO001", None, srt_for(SENTENCES), kind="transcript")
+    assert e.value.reason == "bad_srt" and "sync" in str(e.value)
+    assert not (cfg.alignments_dir / "b1.transcript.srt").exists()
+    with pytest.raises(align.AlignError) as e:
+        align.ingest(cfg, book, "B0AUDIO001", None, srt_for(SENTENCES), kind="guess")
+    assert e.value.reason == "bad_kind"
+
+
+def test_removing_the_transcript_goes_back_to_the_synced_srt(cfg):
+    book = _book(cfg)
+    align.ingest(cfg, book, "B0AUDIO001", None, srt_for(SENTENCES[:30]))
+    align.ingest(cfg, book, "B0AUDIO001", None, srt_for(_heard(SENTENCES), step=8000), kind="transcript")
+    assert align.delete(cfg, "b1", "transcript")
+    assert (cfg.alignments_dir / "b1.srt").exists() and not (cfg.alignments_dir / "b1.transcript.srt").exists()
+    m = align.ensure(cfg, book, "B0AUDIO001", None)
+    assert m["source"] == "synced" and m["matched"] == 30
+    assert not align.delete(cfg, "b1", "transcript")
+
+
+def test_numbered_text_has_every_pack_sentence(cfg):
+    book = _book(cfg)
+    lines = align.numbered_text(cfg, book).splitlines()
+    index = annotate.sentence_texts(cfg, book)[0]["index"]
+    assert lines == [f"{index}:{i}\t{s}" for i, s in enumerate(SENTENCES)]
+
+
 # ── storage and the pack's anchors ───────────────────────────────────────────
 
 def test_sentence_texts_line_up_with_the_packs_sents(cfg):
@@ -315,7 +431,7 @@ def test_state_reports_none_ready_and_stale(cfg):
     book = _book(cfg)
     assert align.state(cfg, book, "B0AUDIO001")["state"] == "none"
     align.ingest(cfg, book, "B0AUDIO001", None, srt_for(SENTENCES))
-    assert align.state(cfg, book, "B0AUDIO001") == {"state": "ready", "coverage": 1.0, "ok": True}
+    assert align.state(cfg, book, "B0AUDIO001") == {"state": "ready", "coverage": 1.0, "ok": True, "source": "synced", "estimated": 0}
     assert align.state(cfg, book, "B0OTHER0002")["state"] == "stale"
     assert align.state(cfg, {**book, "sha256": "00" * 32}, "B0AUDIO001")["state"] == "stale"
 
@@ -372,8 +488,8 @@ def test_post_then_get_serves_the_map_with_an_etag_and_a_304(client):
 
     r = _post(client, "b1", srt_for(SENTENCES))
     assert r.status_code == 200
-    assert r.json() == {"status": "ok", "audiobook": "B0AUDIO001", "coverage": 1.0, "ok": True,
-                        "matched": 40, "total": 40}
+    assert r.json() == {"status": "ok", "audiobook": "B0AUDIO001", "source": "synced", "coverage": 1.0,
+                        "ok": True, "matched": 40, "estimated": 0, "total": 40}
 
     r = client.get("/api/reader/books/b1/alignment")
     assert r.status_code == 200
@@ -385,7 +501,8 @@ def test_post_then_get_serves_the_map_with_an_etag_and_a_304(client):
 
     st = client.get("/api/books/b1/status").json()["alignment"]
     assert st == {"state": "ready", "coverage": 1.0, "ok": True, "step": None, "error": None,
-                  "eligible": True, "can_generate": False}
+                  "eligible": True, "can_generate": False, "source": "synced", "estimated": 0,
+                  "accepts": ["synced", "transcript"]}
 
     raw = client.get("/api/reader/books/b1/alignment.srt")
     assert raw.status_code == 200 and raw.text.startswith("1\n00:00:00,000 --> 00:00:04,000")
@@ -434,6 +551,24 @@ def test_mp3_folder_routes_take_a_part(client, server):
     assert sents[0] == [0, 4000, "a.mp3"] and sents[20] == [0, 4000, "b.mp3"]
     assert client.get("/api/reader/books/b1/alignment.srt").status_code == 400
     assert client.get("/api/reader/books/b1/alignment.srt?part=b.mp3").status_code == 200
+
+
+def test_routes_take_a_transcript_and_say_what_the_map_is_made_from(client):
+    assert _post(client, "b1", srt_for(SENTENCES[:30])).json()["source"] == "synced"
+    r = _post(client, "b1", srt_for(_heard(SENTENCES), step=8000), kind="transcript")
+    assert r.status_code == 200 and r.json()["source"] == "transcript" and r.json()["matched"] == 40
+    body = client.get("/api/reader/books/b1/alignment").json()
+    assert body["source"] == "transcript" and body["docs"][0]["len"][0] == len(align.norm(SENTENCES[0]))
+    st = client.get("/api/books/b1/status").json()["alignment"]
+    assert st["source"] == "transcript" and st["accepts"] == ["synced", "transcript"]
+    assert client.get("/api/reader/books/b1/alignment.srt?kind=synced").text.count("-->") == 30
+    assert client.get("/api/reader/books/b1/alignment.srt?kind=nope").status_code == 400
+    assert _post(client, "b1", srt_for(SENTENCES), kind="transcript").json()["reason"] == "bad_srt"
+    assert _post(client, "b1", srt_for(SENTENCES), kind="nope").json()["reason"] == "bad_kind"
+    assert client.delete("/api/books/b1/alignment?kind=transcript").status_code == 200
+    assert client.get("/api/reader/books/b1/alignment").json()["source"] == "synced"
+    numbered = client.get("/api/books/b1/alignment/text?numbered=1").text.splitlines()
+    assert numbered[0].endswith("\t" + SENTENCES[0]) and ":" in numbered[0].split("\t")[0]
 
 
 def test_the_alignment_routes_do_not_wait_for_the_index_lock(client, server):

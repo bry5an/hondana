@@ -117,6 +117,10 @@ KEYS: tuple[Key, ...] = (
         "The command that aligns one audio file with a book's text. The server runs it, so it "
         "can only be set in the config file. A list of arguments avoids shell quoting (use it "
         "for Windows paths).", file_only=True),
+    Key("alignment.transcribe_cmd", "transcribe_cmd", "command", "", "Transcribe command",
+        "advanced", "The command that transcribes one audio file (SubPlz gen); used in place of "
+        "the SubPlz command when set. The server runs it, so it can only be set in the config "
+        "file.", file_only=True),
     Key("discovery.enabled", "discovery_enabled", "bool", True, "Announce on the network",
         "network", "Advertise over Bonjour so Hondana for iPhone finds this server.", restart=True),
     Key("discovery.advertise_port", "discovery_advertise_port", "optint", None,

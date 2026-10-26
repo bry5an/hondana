@@ -87,10 +87,13 @@ The pack format, the vocab snapshot and the event rules are specified in `CLAUDE
 
 ## Audio sync
 
-`GET /api/books/{id}/alignment/text`, `POST`/`DELETE /api/books/{id}/alignment` (SRT upload),
-`POST`/`DELETE /api/books/{id}/alignment/generate` and `GET /api/reader/books/{id}/alignment.srt`.
-`GET /api/books/{id}/status` carries `alignment: {state, coverage, ok, step, error, eligible, can_generate}`:
-`eligible` is a Japanese book whose audiobook is on the server, `can_generate` that `subplz_cmd` can run
-there; the book page's Audio sync card reads both. `GET /api/admin/alignment-queue` lists the eligible books
+`GET /api/books/{id}/alignment/text` (`?numbered=1`: `doc:sentence<TAB>text` for every sentence),
+`POST`/`DELETE /api/books/{id}/alignment` (SRT upload; `kind=transcript|synced`, and `DELETE ?kind=`
+removes only that kind), `POST`/`DELETE /api/books/{id}/alignment/generate` and
+`GET /api/reader/books/{id}/alignment.srt` (`?kind=`).
+`GET /api/books/{id}/status` carries `alignment: {state, coverage, ok, step, error, eligible, can_generate,
+source, estimated, accepts}`: `eligible` is a Japanese book whose audiobook is on the server,
+`can_generate` that `transcribe_cmd` or `subplz_cmd` can run there; the book page's Audio sync card reads
+both. `source` is what the map is made from (`transcript` or `synced`), `accepts` the kinds an upload may be. `GET /api/admin/alignment-queue` lists the eligible books
 with no sync yet (`{books: [{book_id, title, author, runtime_min, files}], total_min, can_generate}`), which
 Admin shows. See [audio-sync.md](audio-sync.md).
