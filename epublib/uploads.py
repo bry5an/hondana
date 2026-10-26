@@ -40,7 +40,7 @@ from pathlib import Path
 from . import audio_tags
 from .audiobook_scanner import COVER_EXTS, COVER_NAMES
 from .config import Config
-from .index_store import load_json, save_json
+from .index_store import load_json, remove_file, save_json
 
 STAGING = ".hondana-staging"
 CHUNK_SIZE = 16 << 20       # what the server asks clients to send
@@ -311,7 +311,7 @@ def discard(cfg: Config, upload_id: str) -> bool:
     existed = False
     for path in (_meta_path(cfg, upload_id), part_path(cfg, upload_id)):
         with contextlib.suppress(FileNotFoundError):
-            path.unlink()
+            remove_file(path)
             existed = True
     d = item_dir(cfg, upload_id)
     if d.exists():
