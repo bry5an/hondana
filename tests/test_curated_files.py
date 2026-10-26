@@ -8,13 +8,15 @@ overrides went unmirrored. The guard test below fails the moment a new
 `*_overrides` path on Config is missing from any of them. Audiobook-keyed
 stores follow an ab_id instead (audiobook_rekey), and are checked against that.
 """
+import json
 import shutil
 import subprocess
+import zipfile
 
 import pytest
 
 from conftest import make_cfg
-from epublib import audiobook_rekey, config, data_mirror, purge, rekey
+from epublib import audiobook_rekey, backup, config, data_mirror, purge, rekey
 from epublib.config import Config
 
 pytestmark = pytest.mark.skipif(shutil.which("git") is None, reason="git not installed")
@@ -132,6 +134,22 @@ def test_push_mirrors_the_curated_files_and_nothing_derived(tmp_path, mirror):
         "users/reader2/bookmarks.json",
         "users/reader2/future_file.json",
     }
+
+
+def test_a_curated_export_holds_exactly_what_push_mirrors(tmp_path, mirror):
+    """`hondana export --curated` and the git mirror are one list (data_mirror.curated_files)."""
+    remote, clone = mirror
+    cfg = make_cfg(tmp_path, data_mirror_publish=True, data_mirror_path=clone)
+    _seed_curated(cfg)
+    data_mirror.push(cfg)
+    mirrored = set(_git(remote, "ls-tree", "-r", "--name-only", "HEAD").split()) - {"README"}
+
+    out = backup.export_data(cfg, tmp_path / "curated.zip", "curated", say=lambda line: None)
+
+    with zipfile.ZipFile(out) as zf:
+        assert json.loads(zf.read("manifest.json"))["scope"] == "curated"
+        exported = {n[len("data/"):] for n in zf.namelist() if n != "manifest.json"}
+    assert exported == mirrored and exported
 
 
 def test_push_with_nothing_changed_makes_no_commit(tmp_path, mirror, capsys):

@@ -17,12 +17,14 @@ profiles.json is the reader registry; and every file in each profile's folder
 and words marked known one click at a time on /known and the book pages).
 known_stats.json is derived (rebuildable from the above), so it is deliberately
 not mirrored. Meant for a timer or cron job, not part of the
-scan/analyze/build pipeline (see docs/running-a-server.md).
+scan/analyze/build pipeline (see docs/running-a-server.md). `curated_files` is the one
+list of what that is: `hondana export --curated` (backup.py) writes the same files.
 """
 from __future__ import annotations
 
 import shutil
 import subprocess
+from collections.abc import Iterator
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -55,6 +57,46 @@ ROOT_FILES = (
 USER_DERIVED = frozenset({"known_stats.json"})
 
 
+def is_curated(rel: str) -> bool:
+    """Whether a path under data/ (relative, `/`-separated) is one of the hand-made files this
+    module backs up. The one rule behind `curated_files`, the mirror and a curated export
+    (backup.py), and what an import reads from a mirror clone."""
+    parts = rel.split("/")
+    name = parts[-1]
+    if len(parts) == 1:
+        return name in ROOT_FILES
+    if parts[0] == "covers":
+        # Hand-uploaded covers, EPUBs' and audiobooks' (not their thumbnails).
+        return (len(parts) == 3 and parts[1] == "custom") or \
+               (len(parts) == 4 and parts[1:3] == ["audiobooks", "custom"])
+    if parts[0] == "alignments":
+        # A Whisper run to make again; the map beside the SRTs is derived.
+        return len(parts) == 2 and (name.endswith(".srt") or name.endswith(".anchors.jsonl"))
+    if parts[0] == "users":
+        return len(parts) == 3 and name not in USER_DERIVED and not name.startswith(".")
+    return False
+
+
+def curated_files(data_dir: Path) -> Iterator[tuple[str, Path]]:
+    """`(relative path, file)` for every hand-made file under `data_dir`, in a stable order:
+    exactly what `push` mirrors and a curated export holds."""
+    for name in ROOT_FILES:
+        if (data_dir / name).is_file():
+            yield name, data_dir / name
+    for sub in ("covers/custom", "covers/audiobooks/custom", "alignments"):
+        folder = data_dir / sub
+        if folder.is_dir():
+            for src in sorted(p for p in folder.iterdir() if p.is_file()):
+                if is_curated(f"{sub}/{src.name}"):
+                    yield f"{sub}/{src.name}", src
+    users = data_dir / "users"
+    if users.is_dir():
+        for user_dir in sorted(p for p in users.iterdir() if p.is_dir()):
+            for src in sorted(p for p in user_dir.iterdir() if p.is_file()):
+                if is_curated(f"users/{user_dir.name}/{src.name}"):
+                    yield f"users/{user_dir.name}/{src.name}", src
+
+
 def _copy(src: Path, dst: Path) -> None:
     if src.exists():
         dst.parent.mkdir(parents=True, exist_ok=True)
@@ -76,30 +118,8 @@ def push(cfg: Config) -> None:
             "docs/running-a-server.md."
         )
 
-    for name in ROOT_FILES:
-        _copy(cfg.data_dir / name, mirror_dir / name)
-
-    # Hand-uploaded cover images: the one binary artifact nothing can rebuild.
-    if cfg.custom_covers_dir.is_dir():
-        for src in sorted(p for p in cfg.custom_covers_dir.iterdir() if p.is_file()):
-            _copy(src, mirror_dir / "covers" / "custom" / src.name)
-
-    # Hand-uploaded audiobook covers, likewise (not their thumbnails).
-    if cfg.audiobook_custom_covers_dir.is_dir():
-        for src in sorted(p for p in cfg.audiobook_custom_covers_dir.iterdir() if p.is_file()):
-            _copy(src, mirror_dir / "covers" / "audiobooks" / "custom" / src.name)
-
-    # Audiobook alignment SRTs: a Whisper run to make again. The map beside
-    # them is derived and left out.
-    if cfg.alignments_dir.is_dir():
-        for src in sorted([*cfg.alignments_dir.glob("*.srt"), *cfg.alignments_dir.glob("*.anchors.jsonl")]):
-            _copy(src, mirror_dir / "alignments" / src.name)
-
-    if cfg.users_dir.is_dir():
-        for user_dir in sorted(p for p in cfg.users_dir.iterdir() if p.is_dir()):
-            for src in sorted(p for p in user_dir.iterdir() if p.is_file()):
-                if src.name not in USER_DERIVED and not src.name.startswith("."):
-                    _copy(src, mirror_dir / "users" / user_dir.name / src.name)
+    for rel, src in curated_files(cfg.data_dir):
+        _copy(src, mirror_dir / rel)
 
     subprocess.run(["git", "-C", str(mirror_dir), "add", "-A"], check=True)
     unchanged = subprocess.run(
