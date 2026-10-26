@@ -176,9 +176,21 @@ Each line of the transcript is looked for in the whole book, on its own, with no
 last one was. Of all the places found, the server keeps the heaviest chain that moves forward in
 the book as it moves forward in time. A line that lands in the wrong place then simply drops out,
 because keeping it would mean dropping every line it jumps over. Short lines (「はい」) are placed
-afterwards, between the lines either side of them. A sentence no line covers gets a time between
-its heard neighbours when that reads at a speaking pace, and is listed in the map's `est`;
-otherwise it has none (front matter nobody reads, or music).
+afterwards, between the lines either side of them.
+
+Whisper and the book often spell the same thing differently. A name is the usual case: the book
+writes 仁科, Whisper にしな, and a line that is mostly the name has too little left in common to
+find. The server reads these spellings off the lines it did place (where a line and its place in
+the book differ by kana against kanji, over and over, that is how Whisper writes it), then looks
+for every line again with them applied and keeps whichever text fits the book better. It needs
+no name list, so it works for any book. Kanji digits match digits (第二話 and 第2話).
+
+What is still unplaced is mostly one-word lines (「なに？」 is 何? to Whisper, with nothing in
+common). When a stretch of up to four sentences sits between two placed ones and has as many
+unplaced lines as sentences (or one line for all of them), those lines are that stretch, since
+they have nowhere else to go; the time is the line's own, so these sentences count as heard.
+A sentence no line covers gets a time between its heard neighbours when that reads at a speaking
+pace, and is listed in the map's `est`; otherwise it has none (front matter nobody reads, or music).
 
 ### Checking a map against the audio
 

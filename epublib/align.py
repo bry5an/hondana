@@ -6,7 +6,7 @@ matching happens here: an SRT produced elsewhere (SubPlz / Whisper) is
 ingested, its cues are located in the book's text, and the result is stored
 against the pack's own anchors:
 
-    {"schema": 4, "book_id": …, "sha256": …, "audiobook": "<ab_id>",
+    {"schema": 5, "book_id": …, "sha256": …, "audiobook": "<ab_id>",
      "srt_sha": …, "source": "transcript", "coverage": 0.96, "ok": true,
      "matched": 812, "estimated": 20, "total": 846,
      "docs": [{"index": 3, "fnv": "9a3f01bc", "len": [14, 6, …], "est": [7, 8],
@@ -54,7 +54,7 @@ import re
 import shutil
 import threading
 import unicodedata
-from bisect import bisect_left
+from bisect import bisect_left, bisect_right
 from collections import Counter
 from dataclasses import dataclass
 from difflib import SequenceMatcher
@@ -64,7 +64,9 @@ from . import annotate, speech
 from .config import Config
 from .index_store import write_bytes_atomic
 
-ALIGN_SCHEMA = 4  # 4: a plain transcript is matched globally; `source`, per-doc `len` and `est`;
+ALIGN_SCHEMA = 5  # 5: a transcript's spellings are read off its own cues, holes are filled from the cues in
+# them, kanji digits match digits
+# 4: a plain transcript is matched globally; `source`, per-doc `len` and `est`;
 # listeners' fixes (`anchors`) change the map through `anchors_sha`, not the schema
 # 3: squeezed runs of cues are spread back out over the time they took
 # 2: the matcher no longer lets a repeated line skip ahead
@@ -144,10 +146,15 @@ def parse_srt(text: str, part: str | None = None) -> list[Cue]:
 _READING = re.compile(r"[（(][ぁ-ゖァ-ヺー]+[）)]")
 
 
+_KANJI_DIGITS = str.maketrans("〇一二三四五六七八九", "0123456789")
+
+
 def norm(s: str) -> str:
-    """The comparison form: NFKC, katakana as hiragana, letters and numbers only."""
+    """The comparison form: NFKC, katakana as hiragana, kanji digits as digits (the book
+    says 第二話, Whisper writes 第2話), letters and numbers only. Every character stays
+    one character, so a sentence's length is the same with or without the fold."""
     out = []
-    for ch in unicodedata.normalize("NFKC", s):
+    for ch in unicodedata.normalize("NFKC", s).translate(_KANJI_DIGITS):
         if unicodedata.category(ch)[0] in ("L", "N"):
             if "ァ" <= ch <= "ヶ":
                 ch = chr(ord(ch) - 0x60)
@@ -324,12 +331,30 @@ def match_transcript(sentences: list[str], cues: list[Cue]) -> tuple[list[list |
     forward in the book as it moves forward in time. A wrong place is then simply
     left out, because keeping it would mean dropping every cue it jumps over. Short
     lines (「はい」) and cues the whole-book search missed are looked for afterwards,
-    only between the chained cues either side of them."""
+    only between the chained cues either side of them.
+
+    Whisper's spelling can differ from the book's (にしな for 仁科, こと for 事): once
+    the chain is made, `_respellings` reads those pairs off it, and the cues are looked
+    for again with them applied. A line still unplaced that sits alone between two
+    placed ones takes the one cue left between them (`_fill`)."""
     norms, b, bounds = _book(sentences)
     index = _bigrams(b)
     texts = [cue_norm(cue.text) for cue in cues]
-    chained = _chain([_candidates(b, index, t, 0, len(b), _MIN_RATIO) if len(t) >= 4 else [] for t in texts], texts)
+    found = [_candidates(b, index, t, 0, len(b), _MIN_RATIO) if len(t) >= 4 else [] for t in texts]
+    chained = _chain(found, texts)
+    spelled = _respellings(b, texts, chained)
+    if spelled:
+        again = re.compile("|".join(re.escape(h) for h in sorted(spelled, key=len, reverse=True)))
+        for k, t in enumerate(texts):
+            respelled = again.sub(lambda m: spelled[m.group()], t)
+            if respelled == t:
+                continue
+            hits = _candidates(b, index, respelled, 0, len(b), _MIN_RATIO) if len(respelled) >= 4 else []
+            if _fit(hits, respelled) >= _fit(found[k], t):  # the book's own spelling, unless the cue fitted it better
+                texts[k], found[k] = respelled, hits
+        chained = _chain(found, texts)
     anchors: list[tuple[int, int, Cue]] = []
+    anchored: set[int] = set()  # the cues that have a place in the book
     ahead = sorted(chained)  # cue indices with a chained place, to bound each gap from above
     nxt = 0
     lo = 0
@@ -347,13 +372,57 @@ def match_transcript(sentences: list[str], cues: list[Cue]) -> tuple[list[list |
             hit = None
         if hit and hit[1] > hit[0] and (not anchors or hit[1] > anchors[-1][1]):
             anchors.append((hit[0], hit[1], cue))
+            anchored.add(k)
             lo = hit[1]
     rows = _rows(bounds, anchors, cues)
-    return rows, _estimate(rows, [len(n) for n in norms])
+    sizes = [len(n) for n in norms]
+    _fill(rows, sizes, cues, [k for k in range(len(cues)) if texts[k] and k not in anchored])
+    return rows, _estimate(rows, sizes)
 
 
 _CHAIN_SLACK = 8         # characters of the book two neighbouring cues' places may share
 _EST_PACE = (3.0, 15.0)  # chars/s an unheard run between two heard sentences must make to be estimated
+_SPELL_VOTES = 3         # cues that must show a respelling before it is believed ...
+_SPELL_SHARE = 0.75      # ... in this share of the places that text is written some other way
+_SPELL_PLAIN = 3         # ... and the cues' kana must be this many times as common as the book's own (else it is a plain word)
+_FILL_MAX = 4            # most sentences a hole may have to be filled from the cues in it
+
+
+def _fit(hits: list[tuple[int, int, float]], text: str) -> float:
+    """How many of `text`'s characters its best place in the book matched."""
+    return max((ratio for _, _, ratio in hits), default=0.0) * len(text)
+
+
+def _kana(s: str) -> bool:
+    return bool(s) and all("ぁ" <= ch <= "ゖ" or ch == "ー" for ch in s)
+
+
+def _written(s: str) -> bool:
+    """A run the book writes in kanji (or Latin, digits): no kana, at least one ideograph or letter."""
+    return (bool(s) and len(s) <= 6 and not any("ぁ" <= ch <= "ゖ" or ch == "ー" for ch in s)
+            and any(ord(ch) >= 0x2E80 or ch.isascii() and ch.isalpha() for ch in s))
+
+
+def _respellings(b: str, texts: list[str], chained: dict[int, tuple[int, int]]) -> dict[str, str]:
+    """How Whisper spells what the book writes in kanji, `{heard: written}`, read off the cues
+    already placed: a name (にしな for 仁科), 怪訝, 事. Where a placed
+    cue and its place in the book differ by kana against kanji, that is a vote. A pair counts once
+    several cues agree and the kana is not just a word the book itself writes in kana (かし, とき),
+    so it works for any name in any book, with no dictionary."""
+    votes: dict[str, Counter] = {}
+    for k, (s, e) in chained.items():
+        place = b[s:e]
+        if texts[k] == place:
+            continue
+        for tag, i1, i2, j1, j2 in SequenceMatcher(None, texts[k], place, autojunk=False).get_opcodes():
+            if tag == "replace" and i2 - i1 >= 2 and _kana(texts[k][i1:i2]) and _written(place[j1:j2]):
+                votes.setdefault(texts[k][i1:i2], Counter())[place[j1:j2]] += 1
+    out = {}
+    for heard, writings in votes.items():
+        written, n = writings.most_common(1)[0]
+        if n >= _SPELL_VOTES and n >= _SPELL_SHARE * sum(writings.values()) and n >= _SPELL_PLAIN * b.count(heard):
+            out[heard] = written
+    return out
 
 
 def _chain(candidates: list[list[tuple[int, int, float]]], texts: list[str]) -> dict[int, tuple[int, int]]:
@@ -398,6 +467,51 @@ def _chain(candidates: list[list[tuple[int, int, float]]], texts: list[str]) -> 
         out[k] = (s, e)
         i = prev
     return out
+
+
+def _fill(rows: list[list | None], sizes: list[int], cues: list[Cue], free: list[int]) -> None:
+    """Times the sentences no cue was found in from the cues no sentence was found for,
+    where both sit between the same two timed sentences and there is one cue for each (or
+    one cue for the lot). The book writes 「なに？」, 「お義姉さん」, 「どーも」 and Whisper 何?,
+    お姉さん, どうも, so no text matches and neither is placed, but a cue with nowhere
+    else to belong is that sentence. Changes `rows` in place; `free` are the cue indices
+    that have no place in the book. Time is per part, so a hole is only filled by cues of
+    the part its neighbours are in."""
+    by_part: dict[str | None, list[tuple[float, int]]] = {}
+    for i in free:
+        by_part.setdefault(cues[i].part, []).append(((cues[i].start + cues[i].end) / 2, i))
+    mids = {part: sorted(items) for part, items in by_part.items()}
+    keys = {part: [m for m, _ in items] for part, items in mids.items()}
+    k = 0
+    while k < len(rows):
+        if rows[k] is not None:
+            k += 1
+            continue
+        j = k
+        while j < len(rows) and rows[j] is None:
+            j += 1
+        if k > 0 and j < len(rows):
+            a, z = rows[k - 1], rows[j]
+            part = a[2] if len(a) > 2 else None
+            ids = [x for x in range(k, j) if sizes[x]]
+            if part == (z[2] if len(z) > 2 else None) and 0 < len(ids) <= _FILL_MAX and part in mids:
+                lo, hi = bisect_left(keys[part], a[1]), bisect_right(keys[part], z[0])
+                near = [cues[i] for _, i in mids[part][lo:hi]]
+                if len(near) == len(ids):
+                    spans = [(c.start, c.end) for c in near]
+                elif len(near) == 1:
+                    chars, at, spans = sum(sizes[x] for x in ids), near[0].start, []
+                    for x in ids:
+                        took = (near[0].end - near[0].start) * sizes[x] / chars
+                        spans.append((round(at), round(at + took)))
+                        at += took
+                else:
+                    spans = []
+                for x, (start, end) in zip(ids, spans):
+                    start, end = max(start, a[1]), min(end, z[0])  # between its neighbours
+                    if end > start:
+                        rows[x] = [start, end] + ([part] if part else [])
+        k = j
 
 
 def _estimate(rows: list[list | None], sizes: list[int]) -> set[int]:

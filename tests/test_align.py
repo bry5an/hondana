@@ -294,6 +294,84 @@ def test_short_lines_are_placed_between_the_lines_around_them():
     assert rows[10] == [40000, 44000] and rows[21] == [84000, 88000]
 
 
+def _named_book() -> tuple[list[str], list[str]]:
+    """The book writes a name in kanji and Whisper in kana (仁科 → にしな)."""
+    book, heard = list(SENTENCES), [s.replace("。", "") for s in SENTENCES]
+    for i in (3, 9, 15, 21, 27, 33):  # the name inside an ordinary line: the cue still matches, and shows the spelling
+        book[i] = SENTENCES[i][:5] + "仁科" + SENTENCES[i][5:]
+        heard[i] = heard[i][:5] + "にしな" + heard[i][5:]
+    for i in (6, 12, 18, 24, 30, 36):  # a line that is mostly the name: without the spelling too little of the cue fits
+        book[i] = f"仁科さん{SENTENCES[i][:2]}。"
+        heard[i] = f"にしなさん{SENTENCES[i][:2]}"
+    return book, heard
+
+
+def test_a_name_the_transcript_writes_in_kana_is_found_from_the_cues_that_did_match():
+    book, heard = _named_book()
+    cues = align.parse_srt(srt_for(heard))
+    rows, est = align.match_transcript(book, cues)
+    assert all(rows) and not est
+    assert [rows[i] for i in (6, 12, 36)] == [[24000, 28000], [48000, 52000], [144000, 148000]]
+    assert align._respellings(*_places(book, cues)) == {"にしな": "仁科"}
+
+
+def _places(book: list[str], cues: list[align.Cue]):
+    """`_respellings`' arguments for cues that each sit in the sentence of the same number."""
+    norms, b, bounds = align._book(book)
+    texts = [align.cue_norm(c.text) for c in cues]
+    return b, texts, {k: bounds[k] for k in range(len(cues))}
+
+
+def test_a_respelling_needs_several_cues_and_is_not_a_word_the_book_writes_in_kana():
+    book = [f"{SENTENCES[i][:4]}事{SENTENCES[i][4:]}" for i in range(6)]
+    heard = [f"{SENTENCES[i][:4]}こと{SENTENCES[i][4:]}".replace("。", "") for i in range(6)]
+    assert align._respellings(*_places(book, align.parse_srt(srt_for(heard)))) == {"こと": "事"}
+    assert align._respellings(*_places(book[:2], align.parse_srt(srt_for(heard[:2])))) == {}   # two cues is not enough
+    kana_book = book + [f"こと{SENTENCES[i]}こと" for i in range(6, 12)]                        # the book writes こと too
+    assert align._respellings(*_places(kana_book, align.parse_srt(srt_for(heard + SENTENCES[6:12])))) == {}
+
+
+def test_kanji_digits_match_digits():
+    assert align.norm("第二話『夫婦』") == align.norm("第2話 夫婦") == "第2話夫婦"
+    assert align.norm("三八〇円") == "380円" and len(align.norm("二十一歳")) == 4  # one character each, so lengths agree
+
+
+def test_a_line_the_cue_spells_differently_is_found_by_the_hole_it_leaves():
+    """「なに？」 against 何?: no text in common, but both neighbours are placed and the one cue
+    between them has nowhere else to go."""
+    book = SENTENCES[:10] + ["「なに？」"] + SENTENCES[10:]
+    heard = [s.replace("。", "") for s in SENTENCES[:10]] + ["何?"] + [s.replace("。", "") for s in SENTENCES[10:]]
+    rows, est = align.match_transcript(book, align.parse_srt(srt_for(heard)))
+    assert all(rows) and not est
+    assert rows[10] == [40000, 44000] and rows[9] == [36000, 40000] and rows[11] == [44000, 48000]
+
+
+def test_one_cue_for_two_lines_in_a_hole_is_shared_by_their_length():
+    book = SENTENCES[:10] + ["「なに？」", "「べつに」"] + SENTENCES[10:]
+    heard = [s.replace("。", "") for s in SENTENCES[:10]] + ["何 別に"] + [s.replace("。", "") for s in SENTENCES[10:]]
+    rows, est = align.match_transcript(book, align.parse_srt(srt_for(heard)))
+    assert not est
+    assert rows[10] == [40000, 41600] and rows[11] == [41600, 44000]  # 2 and 3 characters of the 4 s
+
+
+def test_a_hole_with_more_cues_than_lines_is_left_alone():
+    """Two unmatched cues for one line: which is it? Neither is guessed."""
+    book = SENTENCES[:10] + ["「なに？」"] + SENTENCES[10:]
+    plain = [s.replace("。", "") for s in SENTENCES]
+    heard = plain[:10] + ["何?", "ふむ"] + plain[10:]
+    rows, est = align.match_transcript(book, align.parse_srt(srt_for(heard)))
+    assert rows[10] is None and 10 not in est and rows[9] and rows[11]
+
+
+def test_a_hole_is_only_filled_from_cues_in_the_same_part():
+    book = SENTENCES[:20] + ["「なに？」"] + SENTENCES[20:]
+    plain = [s.replace("。", "") for s in SENTENCES]
+    one = align.parse_srt(srt_for(plain[:20]), "a.mp3")
+    two = align.parse_srt(srt_for(["何?"] + plain[20:]), "b.mp3")  # the stray cue opens the next file
+    rows, _ = align.match_transcript(book, one + two)
+    assert rows[20] is None  # its neighbours are in different files: the cue could be in either hole
+
+
 def test_transcript_parts_name_their_part_and_do_not_span_the_join():
     one = align.parse_srt(srt_for(_heard(SENTENCES[:20]), step=8000), "a.mp3")
     two = align.parse_srt(srt_for(_heard(SENTENCES[20:]), step=8000), "b.mp3")
@@ -311,7 +389,7 @@ def test_a_transcript_is_stored_apart_and_the_map_is_made_from_it(cfg):
     align.ingest(cfg, book, "B0AUDIO001", None, srt_for(SENTENCES[:30]))
     m = align.ingest(cfg, book, "B0AUDIO001", None, srt_for(_heard(SENTENCES), step=8000), kind="transcript")
     assert (cfg.alignments_dir / "b1.srt").exists() and (cfg.alignments_dir / "b1.transcript.srt").exists()
-    assert m["schema"] == 4 and m["source"] == "transcript" and m["matched"] == 40 and m["estimated"] == 0
+    assert m["schema"] == align.ALIGN_SCHEMA and m["source"] == "transcript" and m["matched"] == 40 and m["estimated"] == 0
     assert m["docs"][0]["len"] == [len(align.norm(s)) for s in SENTENCES] and m["docs"][0]["est"] == []
     assert align.state(cfg, book, "B0AUDIO001")["source"] == "transcript"
     assert align.srt_bytes(cfg, "b1", None, None).decode().count("-->") == 20   # what the map is made from
