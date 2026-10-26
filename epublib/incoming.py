@@ -15,7 +15,7 @@ from pathlib import Path
 
 from . import epub_meta, lang
 from .config import Config
-from .scanner import sha256_of
+from .index_store import sha256_of
 from .textnorm import author_key, compact_key, display_title
 
 MAX_BYTES = 100 * 1024 * 1024

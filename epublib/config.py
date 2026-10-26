@@ -7,12 +7,17 @@ about the working directory.
 """
 from __future__ import annotations
 
+import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 
+# True inside a PyInstaller bundle (the desktop app).
+FROZEN = bool(getattr(sys, "frozen", False))
 # The checkout (parent of the epublib package): templates, static, and the
-# config.toml / config.<env>.toml a git checkout may keep next to the code.
-ROOT = Path(__file__).resolve().parent.parent
+# config.toml / config.<env>.toml a git checkout may keep next to the code. In a
+# PyInstaller bundle the same files are unpacked into sys._MEIPASS.
+ROOT = Path(getattr(sys, "_MEIPASS", "") or Path(__file__).resolve().parent.parent) if FROZEN \
+    else Path(__file__).resolve().parent.parent
 # `cli.py --config X serve` passes the file to the server process through this.
 CONFIG_ENV = "HONDANA_CONFIG"
 

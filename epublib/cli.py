@@ -9,6 +9,8 @@ Usage: hondana <command> [--config PATH]   (or `uv run cli.py …` from a checko
     push      back up the hand-curated data/ files to a git repo (off unless configured; see epublib/data_mirror.py)
     seed-known [--top-n N]   seed active profile's known words with wordfreq top-N (en/ja)
     serve     run the web server
+    desktop   tray app that keeps the server running (what the packaged app starts)
+    --self-test   check that this installation works, then exit
     config [--json]   show every setting, its value and where it came from
     admin-password set|clear|status   the optional admin password (clear = the way back in)
     token create|list|revoke   script tokens (Authorization: Bearer) for align-remote and the like
@@ -34,12 +36,16 @@ from epublib import build as build_mod
 from epublib import config as config_mod
 from epublib import consolidate as consolidate_mod
 from epublib import data_mirror as data_mirror_mod
+from epublib import desktop as desktop_mod
 from epublib import known as known_mod
 from epublib import orphans as orphans_mod
 from epublib import pipeline as pipeline_mod
+from epublib import procs as procs_mod
 from epublib import profiles as profiles_mod
 from epublib import rekey as rekey_mod
+from epublib import selftest as selftest_mod
 from epublib import stdio as stdio_mod
+from epublib.config import FROZEN
 from epublib.index_store import load_json
 
 
@@ -295,10 +301,22 @@ def cmd_serve(args):
         os.environ[config_mod.CONFIG_ENV] = str(Path(args.config).expanduser().resolve())
     cfg = _cfg(args)
     stdio_mod.redirect_to_log(cfg.data_dir / "logs" / "server.log")  # before uvicorn sets up logging
+    parent = os.environ.get(desktop_mod.PARENT_ENV, "")
+    if parent.isdigit():  # started by the desktop app: stop with it
+        procs_mod.watch_parent(int(parent), procs_mod.interrupt_self)
     uvicorn.run("epublib.server:app", host=cfg.host, port=cfg.port, reload=args.reload)
 
 
+def cmd_desktop(args):
+    return desktop_mod.run(library=args.library, open_browser=not args.no_browser, tray=not args.no_tray)
+
+
 def main(argv=None):
+    argv = sys.argv[1:] if argv is None else list(argv)
+    if "--self-test" in argv:
+        return selftest_mod.run()
+    if FROZEN and not argv:  # double-clicking the packaged app
+        argv = ["desktop"]
     parser = argparse.ArgumentParser(description="Hondana: your Japanese EPUB and audiobook library")
     parser.add_argument("--config", help="Path to config.toml", default=None)
     sub = parser.add_subparsers(dest="command", required=True)
@@ -402,6 +420,13 @@ def main(argv=None):
     p_serve.add_argument("--reload", action="store_true", help="Auto-reload (dev)")
     p_serve.set_defaults(func=cmd_serve)
 
+    p_desk = sub.add_parser("desktop", help="Run as a tray app that keeps the server running (what the packaged app starts)")
+    p_desk.add_argument("--library", help="Where the first run makes its Books and Audiobooks folders (default ~/Documents/Hondana)")
+    p_desk.add_argument("--no-browser", action="store_true", help="Don't open the browser")
+    p_desk.add_argument("--no-tray", action="store_true", help="No tray icon: run until Ctrl-C (headless)")
+    p_desk.set_defaults(func=cmd_desktop)
+
+    parser.add_argument("--self-test", action="store_true", help="Check that this installation works, then exit")
     args = parser.parse_args(argv)
     return args.func(args) or 0
 

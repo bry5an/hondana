@@ -17,7 +17,7 @@ from . import epub_meta, lang
 from . import purge as purge_mod
 from . import rekey as rekey_mod
 from .config import Config
-from .index_store import load_json, save_json
+from .index_store import load_json, save_json, sha256_of
 
 SAVE_EVERY = 50
 # Bump when the per-entry schema changes so a re-scan backfills new fields on
@@ -30,14 +30,6 @@ SCHEMA_VERSION = 4
 def book_id_for(rel_path: str, filesize: int) -> str:
     h = hashlib.sha1(f"{rel_path}\0{filesize}".encode("utf-8"))
     return h.hexdigest()[:16]
-
-
-def sha256_of(path: Path) -> str:
-    h = hashlib.sha256()
-    with path.open("rb") as fh:
-        for chunk in iter(lambda: fh.read(1 << 20), b""):
-            h.update(chunk)
-    return h.hexdigest()
 
 
 def _is_junk(path: Path) -> bool:

@@ -247,8 +247,32 @@ async function renderInboxStatus() {
   } catch (err) { /* the status is a nicety: the field works without it */ }
 }
 
+// The desktop app opens /settings?welcome=1 on its first run: say where books go, once.
+function renderWelcome() {
+  const card = document.getElementById("welcome");
+  if (!new URLSearchParams(location.search).has("welcome") || card.dataset.closed) return;
+  const value = (key) => (setDoc.fields.find((f) => f.key === key) || {}).value;
+  const audio = value("audiobook_dirs") || [];
+  const local = ["127.0.0.1", "localhost"].includes(value("host"));
+  card.innerHTML = `
+    <h2 id="welcome-h">Welcome to Hondana</h2>
+    <p class="hint">Put your EPUBs in <code>${esc(value("epub_dir"))}</code>${audio.length
+      ? ` and your audiobooks in <code>${esc(audio[0])}</code>` : ""}, or add a book from the page for it.
+      Hondana looks there, works out which books you can read, and keeps your progress. The folders
+      are set below if you keep your books somewhere else.</p>
+    ${local ? `<p class="hint">For now only this computer can open Hondana. To use it from your phone,
+      change <b>Listen address</b> under Network and phone to <code>0.0.0.0</code>, and set an admin
+      password below first.</p>` : ""}
+    <div class="set-actions">
+      <a class="submit-btn" href="/add">Add a book</a>
+      <button type="button" class="btn" id="welcome-close">Got it</button>
+    </div>`;
+  card.hidden = false;
+}
+
 function render() {
   document.getElementById("settings-cards").innerHTML = SET_GROUPS.map(cardHtml).join("");
+  renderWelcome();
   renderRestart();
   renderAbout();
   renderInboxStatus();
@@ -333,6 +357,11 @@ async function onClick(e) {
       t.disabled = false;
       t.textContent = "Restart now";
     }
+  } else if (t.id === "welcome-close") {
+    const card = document.getElementById("welcome");
+    card.dataset.closed = "1";
+    card.hidden = true;
+    history.replaceState(null, "", location.pathname);
   } else if (t.id === "signout-btn") {
     await postJson("/api/auth/logout", {});
     location.href = "/";

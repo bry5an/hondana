@@ -160,6 +160,16 @@ def user_home() -> Path:
     return Path(base) / "hondana"
 
 
+def default_data_dir() -> Path:
+    """Where `data_dir` lands when no config file or setting names one, so the
+    desktop launcher can write the first settings there before loading anything."""
+    env = os.environ.get("HONDANA_DATA_DIR")
+    if env:
+        return Path(env).expanduser().resolve()
+    home = os.environ.get("HONDANA_HOME")
+    return (Path(home).expanduser().resolve() if home else user_home()) / "data"
+
+
 def find_config(path: Path | str | None = None) -> Path | None:
     """The config file to read, or None. An explicitly named file that is missing
     is an error (a typo shouldn't silently start an empty library)."""

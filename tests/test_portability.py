@@ -10,7 +10,7 @@ import sys
 
 import pytest
 
-from epublib import align_jobs, align_remote, index_store, settings, stdio
+from epublib import align_jobs, align_remote, index_store, procs, settings, stdio
 from epublib.index_store import replace_file, save_json, write_bytes_atomic
 
 
@@ -157,18 +157,18 @@ def test_the_laptops_own_config_may_use_an_array_too(tmp_path):
 # ── process control ──────────────────────────────────────────────────────────
 
 def test_posix_commands_get_their_own_session(monkeypatch):
-    monkeypatch.setattr(align_jobs, "_WINDOWS", False)
+    monkeypatch.setattr(procs, "_WINDOWS", False)
     assert align_jobs.popen_flags() == {"start_new_session": True}
 
 
 def test_windows_commands_get_their_own_process_group(monkeypatch):
-    monkeypatch.setattr(align_jobs, "_WINDOWS", True)
+    monkeypatch.setattr(procs, "_WINDOWS", True)
     assert align_jobs.popen_flags() == {"creationflags": 0x200}
 
 
 def test_windows_stops_the_whole_process_tree_with_taskkill(monkeypatch):
     seen = []
-    monkeypatch.setattr(align_jobs, "_WINDOWS", True)
+    monkeypatch.setattr(procs, "_WINDOWS", True)
     monkeypatch.setattr(align_jobs.subprocess, "run", lambda argv, **kw: seen.append(argv))
 
     class Proc:
@@ -189,7 +189,7 @@ def test_windows_falls_back_to_terminate_without_taskkill(monkeypatch):
         def terminate(self):
             self.stopped = True
 
-    monkeypatch.setattr(align_jobs, "_WINDOWS", True)
+    monkeypatch.setattr(procs, "_WINDOWS", True)
     monkeypatch.setattr(align_jobs.subprocess, "run", missing)
     proc = Proc()
     align_jobs.stop_process(proc)

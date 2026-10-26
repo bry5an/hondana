@@ -46,8 +46,7 @@ from pathlib import Path
 from . import analyze, epub_text, pairing
 from .config import Config
 from .epub_meta import _find_opf_path
-from .index_store import load_json, write_bytes_atomic
-from .scanner import sha256_of
+from .index_store import load_json, sha256_of, write_bytes_atomic
 
 ANNOTATE_SCHEMA = 1
 

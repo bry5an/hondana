@@ -26,6 +26,10 @@ dependencies = [
     "mutagen>=1.48.1",
 ]
 
+[project.optional-dependencies]
+# The tray icon of `hondana desktop` (the packaged app bundles it).
+desktop = ["pystray>=0.19.5"]
+
 [project.scripts]
 hondana = "epublib.cli:main"
 
