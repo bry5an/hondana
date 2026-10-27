@@ -77,6 +77,17 @@ Rules:
   `--ok-ink` (`#2d7451` light, `#8fd6ac` dark, the §10 green ink). Never write the
   literals again. The pastel chip/tile pairs in §8/§10 are a separate palette and keep their own hex.
 - Need a tint of a colour? `color-mix(in srgb, <colour> N%, var(--panel))`, not a new hex.
+- **Increase Contrast** (the web doesn't read `prefers-contrast` yet; the iOS app,
+  [hondana-ios](https://github.com/bry5an/hondana-ios), does). The status fills are soft: on a light card
+  `--ok`, `--warn` and `--danger` are 2.0, 1.8 and 2.4:1, under the 3:1 a mark needs. With Increase Contrast
+  on, the light theme swaps in the darker fills below (≥3:1 on `--panel` and `--panel2`); dark already clears
+  3:1 and keeps its own. The iOS app's `scripts/gen_colors.py` reads this table.
+
+  | Token | Light, Increase Contrast | on `--panel` / `--panel2` |
+  |---|---|---|
+  | `--ok` | `#2a8352` | 4.7 / 4.0:1 |
+  | `--warn` | `#a56f08` | 4.3 / 3.7:1 |
+  | `--danger` | `#cf3f3a` | 4.8 / 4.0:1 |
 
 ## 3. Typography
 
