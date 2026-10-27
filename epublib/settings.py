@@ -382,11 +382,14 @@ def validate(key: Key, value) -> str | None:
 def load(path: Path | str | None = None, overlay: dict | None = None) -> Config:
     """The effective configuration. `overlay` stands in for the saved GUI values (to try a
     change before writing it); None reads `settings.json`."""
+    # The checkout's .env can name the config itself (EPUB_LIBRARY_ENV, HONDANA_CONFIG,
+    # HONDANA_HOME), so it is read before the file is chosen; the home folder's follows.
+    load_dotenv(ROOT / ".env")
     cfg_path = find_config(path)
     home_env = os.environ.get("HONDANA_HOME")
     home = (Path(home_env).expanduser().resolve() if home_env
             else cfg_path.parent if cfg_path else user_home())
-    load_dotenv(home / ".env", ROOT / ".env")
+    load_dotenv(home / ".env")
 
     raw: dict = {}
     if cfg_path:
