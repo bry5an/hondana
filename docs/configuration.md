@@ -36,7 +36,8 @@ The first that applies wins:
    `HONDANA_CONFIG` (or older `EPUB_LIBRARY_CONFIG`) environment variable. A file named this way
    must exist.
 2. In a git checkout: `config.<env>.toml`, where `<env>` is `EPUB_LIBRARY_ENV` (default `dev`), if
-   it exists, then `config.toml`. Useful when one checkout serves two setups.
+   it exists, then `config.toml`. Useful when one checkout serves two setups. The variable may be
+   set in the checkout's `.env` (see below), so every command picks the same file.
 3. `config.toml` in Hondana's home folder.
 4. No file: defaults only.
 
@@ -96,8 +97,11 @@ page (or `GET /api/audiobooks`) isn't empty.
 
 ## `.env` (secrets)
 
-Hondana reads `KEY=VALUE` lines from a `.env` in its home folder and then in the checkout, if
-there is one, without overriding variables already set. Copy `.env.example`. The key is optional:
+Hondana reads `KEY=VALUE` lines from a `.env` in the checkout and then in its home folder, if
+there are any, without overriding variables already set (so the checkout's wins over the home
+folder's, as its config file does). The checkout's is read first because it can name the config
+file itself (`EPUB_LIBRARY_ENV`, `HONDANA_CONFIG`, `HONDANA_HOME`). Copy `.env.example`. The key
+is optional:
 
 | Variable | Used by |
 |---|---|

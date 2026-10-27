@@ -226,6 +226,45 @@ def test_dotenv_in_the_home_folder_is_read(monkeypatch):
     assert settings.load().google_books_api_key == "from-dotenv"
 
 
+def test_a_checkout_dotenv_can_pick_the_config_file(tmp_path):
+    root = tmp_path / "root"
+    root.mkdir()
+    (root / ".env").write_text("EPUB_LIBRARY_ENV=prod\n")
+    (root / "config.prod.toml").write_text("port = 7002\n")
+    (root / "config.toml").write_text("port = 7000\n")
+    cfg = settings.load()
+    assert cfg.config_path == root / "config.prod.toml" and cfg.port == 7002
+    assert cfg.sources["port"] == "file"
+
+
+def test_a_dotenv_that_names_a_missing_config_is_an_error(tmp_path):
+    root = tmp_path / "root"
+    root.mkdir()
+    (root / ".env").write_text("EPUB_LIBRARY_ENV=prod\n")
+    with pytest.raises(SystemExit, match="config.prod.toml"):
+        settings.load()
+
+
+def test_the_environment_beats_a_dotenv_when_picking_the_config(monkeypatch, tmp_path):
+    root = tmp_path / "root"
+    root.mkdir()
+    (root / ".env").write_text("EPUB_LIBRARY_ENV=prod\n")
+    (root / "config.prod.toml").write_text("port = 7002\n")
+    (root / "config.staging.toml").write_text("port = 7003\n")
+    monkeypatch.setenv("EPUB_LIBRARY_ENV", "staging")
+    assert settings.load().port == 7003
+
+
+def test_the_checkout_dotenv_wins_over_the_home_one(tmp_path):
+    root = tmp_path / "root"
+    root.mkdir()
+    (root / ".env").write_text("GOOGLE_BOOKS_API_KEY=from-checkout\n")
+    home = Path(os.environ["HONDANA_HOME"])
+    home.mkdir(parents=True)
+    (home / ".env").write_text("GOOGLE_BOOKS_API_KEY=from-home\n")
+    assert settings.load().google_books_api_key == "from-checkout"
+
+
 def test_every_key_maps_to_a_config_field():
     fields = set(Config.__dataclass_fields__)
     assert {k.field for k in settings.KEYS} <= fields
