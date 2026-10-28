@@ -515,6 +515,21 @@ def test_state_reports_none_ready_and_stale(cfg):
     assert align.state(cfg, {**book, "sha256": "00" * 32}, "B0AUDIO001")["state"] == "stale"
 
 
+def test_is_synced_is_a_fresh_map_that_matched_well(cfg):
+    book = _book(cfg)
+    assert not align.is_synced(cfg, book, "B0AUDIO001")                   # no map
+    align.ingest(cfg, book, "B0AUDIO001", None, srt_for(SENTENCES))
+    assert align.is_synced(cfg, book, "B0AUDIO001")
+    assert not align.is_synced(cfg, book, None)                           # no local audiobook
+    assert not align.is_synced(cfg, book, "B0OTHER0002")                  # relinked
+    assert not align.is_synced(cfg, {**book, "sha256": "00" * 32}, "B0AUDIO001")   # the book changed
+    align.ingest(cfg, book, "B0AUDIO001", None, srt_for(SENTENCES[:20]))  # half matched: served, not followed
+    assert align.state(cfg, book, "B0AUDIO001")["ok"] is False
+    assert not align.is_synced(cfg, book, "B0AUDIO001")                   # the changed file is re-read
+    align.delete(cfg, book["book_id"])
+    assert not align.is_synced(cfg, book, "B0AUDIO001")
+
+
 # ── curated-state hygiene ────────────────────────────────────────────────────
 
 def test_purge_keeps_the_srt_unless_curated_and_rekey_moves_it(cfg):
@@ -606,6 +621,21 @@ def test_post_then_get_serves_the_map_with_an_etag_and_a_304(client):
     assert client.delete("/api/books/b1/alignment").status_code == 200
     assert client.get("/api/reader/books/b1/alignment").status_code == 404
     assert client.delete("/api/books/b1/alignment").status_code == 404
+
+
+def test_the_book_list_and_detail_say_whether_the_audio_is_synced(client):
+    def flags():
+        listed = {b["book_id"]: b["audio_synced"] for b in client.get("/api/books").json()}
+        assert client.get("/api/books/b1").json()["audio_synced"] == listed["b1"]
+        return listed
+
+    assert flags() == {"b1": False, "nolink": False, "en": False}
+    assert _post(client, "b1", srt_for(SENTENCES)).status_code == 200
+    assert flags() == {"b1": True, "nolink": False, "en": False}
+    assert _post(client, "b1", srt_for(SENTENCES[:20])).json()["ok"] is False
+    assert flags()["b1"] is False                                         # served, but the app won't follow it
+    assert client.delete("/api/books/b1/alignment").status_code == 200
+    assert flags()["b1"] is False
 
 
 def test_a_low_coverage_map_is_served_but_marked_not_ok(client):

@@ -214,6 +214,7 @@ def test_book_list_drops_fields_no_page_reads_but_keeps_the_single_book_whole(se
 
     [listed] = json.loads(server.api_books(req_cfg=cfg).body)
     assert set(listed) == {"book_id", "title", "author", "language", "series_name", "cover",
-                           "natively", "vocab", "audiobook", "pair_id", "scanned_at", "stable_key", "known"}
+                           "natively", "vocab", "audiobook", "pair_id", "scanned_at", "stable_key", "known",
+                           "audio_synced"}
     assert json.loads(server.api_books(series="S", req_cfg=cfg).body) == [listed]
     assert set(server.api_book("b1", req_cfg=cfg)) >= set(row)   # the book page still gets it all
