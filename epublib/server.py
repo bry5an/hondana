@@ -481,11 +481,13 @@ def clear_edition_none(book_id: str) -> JSONResponse:
 # wants it (GET /api/books/{id}). The rest is scan/provenance bookkeeping no page's JS
 # reads — a denylist, so a field added later reaches the UI by default.
 # `stable_key` is derived from `identifiers`/`path` before they are dropped, so
-# the iOS reader can file a position for a book that has no pack.
+# the iOS reader can file a position for a book that has no pack. `scanned_at` stays in the
+# list: it is when the scanner last read the file, the nearest thing to "added", and the iOS
+# shelf's Recent sort puts a book you haven't opened by it.
 _BULKY_BOOK_FIELDS = frozenset((
     "description", "raw_description",
     "identifiers", "opf_identifier", "raw_title", "raw_author", "raw_language",
-    "raw_lang_source", "raw_cover", "scanned_at", "schema", "lang_source", "mtime", "filesize", "path",
+    "raw_lang_source", "raw_cover", "schema", "lang_source", "mtime", "filesize", "path",
 ))
 
 
