@@ -11,6 +11,8 @@
 //   coverUrl(b)            the /covers/{id} URL of a book, cache-busted when its cover was
 //                          hand-replaced — never hand-build /covers/ URLs
 //   icon(name)             Material Symbols glyph (font subset: static/material-symbols.woff2)
+//   audioBadgeHtml(synced) the cover-corner mark for a book with an audiobook: headphones in a white circle, or
+//                          (synced) the dark headphones + waveform capsule; syncCapsuleHtml() is the capsule alone
 //   dlEpub(bookId)         the EPUB download button
 //   dlAudio(a)             the audiobook button: local M4B download, else an Audible
 //                          link, else (opts.placeholder) a disabled "No audiobook" — or,
@@ -326,6 +328,19 @@ function levelTitle(n, nat) {
   }
   if (levelUnconfirmed(nat) && nat.matched_title) title += ` — matched "${nat.matched_title}"`;
   return title;
+}
+
+// Audio marks, the same on every language (no 音: it reads only to Japanese). The capsule is the
+// phone app's synced-audio mark; it takes no strain or state colour, so its shape and glyphs carry
+// the meaning. `synced` must come from the server's `audio_synced`, never from a map existing.
+function syncCapsuleHtml(cls = "") {
+  return `<span class="sync-capsule${cls ? " " + cls : ""}" aria-hidden="true">${icon("headphones")}${icon("graphic_eq")}</span>`;
+}
+function audioBadgeHtml(synced) {
+  const label = synced ? "Has audiobook, synced" : "Has audiobook";
+  return synced
+    ? `<span class="audio-badge sync-capsule" role="img" title="${label}" aria-label="${label}">${icon("headphones")}${icon("graphic_eq")}</span>`
+    : `<span class="audio-badge" role="img" title="${label}" aria-label="${label}">${icon("headphones")}</span>`;
 }
 
 // The cover sticker on the grid cards (/ and /audiobooks).

@@ -272,8 +272,12 @@ inks were 3.7–4.3:1 at this size; the green, amber and pink were darkened, kee
   words on the four colours below), never a bare percentage; the exact number is in the
   tooltip. Thresholds live in `strainBucket()` only.
 - **Stickers** (over a cover): the Natively `Lv N` (tilted −5°…−7°, white, Baloo 800, top-left),
-  the series volume count (bottom-left), the audiobook 音 badge. White fill and `--sidebar-bg`
-  ink in both themes.
+  the series volume count (bottom-left), the audiobook badge (headphones in a circle, never the
+  Japanese-only 音). White fill and `--sidebar-bg` ink in both themes.
+- **Synced audio** is a dark capsule (`.sync-capsule`, ink `#2c2340`, white headphones + waveform,
+  ringed in white) in place of the circle: `audioBadgeHtml(synced)` on a cover, `syncCapsuleHtml()`
+  on the book page's "Synced audio" row. It takes no strain or state colour, and only the server's
+  `audio_synced` says a book is synced (a series is, when every volume with an audiobook is).
 - The pink **count badge** (Space Mono on `--accent`) sits beside a page title.
 - **/admin's own pills** (`admin.css`; not the card chips above): `.stage-chip` is the neutral
   0.7rem pill under a pipeline stage (`.warn` = the caution pair);

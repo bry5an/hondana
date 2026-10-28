@@ -1565,7 +1565,7 @@ body.dark .chip { background: var(--panel2); color: var(--muted); }
 }
 .controls-right .manage-btn { margin-left: 0; }
 
-/* Audiobook sticker on a card cover corner (mock's 音 badge). */
+/* Audiobook sticker on a card cover corner: headphones in a white circle, every language. */
 .audio-badge {
   position: absolute;
   top: 8px; right: 8px;
@@ -1575,10 +1575,24 @@ body.dark .chip { background: var(--panel2); color: var(--muted); }
   border-radius: 50%;
   background: #fff;
   color: #2c2340;
-  font: 400 0.8125rem 'Noto Sans JP', sans-serif;
   box-shadow: 0 2px 6px rgba(0, 0, 0, 0.25);
 }
+.audio-badge .mi { font-size: 17px; }
 .managing .audio-badge { opacity: 0; }
+
+/* Synced audio: the same sticker as a dark capsule (headphones + waveform), ringed in white so it
+   parts from a dark cover and from dark mode. No strain or state colour; the shape says it. Also
+   the mark on the book page's "Synced audio" row (there without .audio-badge's positioning). */
+.sync-capsule {
+  display: inline-flex; align-items: center; justify-content: center; gap: 1px;
+  width: auto; height: 26px; padding: 0 7px;
+  border-radius: 13px;
+  background: #2c2340;
+  color: #fff;
+  box-shadow: 0 0 0 2px #fff, 0 2px 6px rgba(0, 0, 0, 0.25);
+  flex: none;
+}
+.sync-capsule .mi { font-size: 16px; }
 
 
 /* Toolbar-collapse button (mobile only): hidden on desktop, where

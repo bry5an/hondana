@@ -295,6 +295,8 @@ function groupBooks(list) {
       langs,
       coverBook: vols.find((v) => v.cover) || null,
       audio: vols.some((v) => v.audiobook),
+      // Synced only when every volume that has an audiobook is (a series that is half synced isn't).
+      audioSynced: vols.some((v) => v.audiobook) && vols.filter((v) => v.audiobook).every((v) => v.audio_synced === true),
       genre: firstVal((b) => b.genre || null),
       natively: nativelyVol ? nativelyVol.natively.natively_level : null,
       nativelyMeta: nativelyVol ? nativelyVol.natively : null,
@@ -358,11 +360,9 @@ function card(g) {
     : `<span class="series-badge" title="${g.vols.length} volumes">${icon("library_books")} ${g.vols.length}</span>`;
   // Natively level sticker (top-left), the cover's hero badge.
   const lv = levelSticker(g.natively, g.nativelyMeta);
-  // Audiobook sticker on the cover corner (mock's 音 badge), when any volume
-  // has a linked audiobook. Hidden while managing so the delete button takes the corner.
-  const audioBadge = g.audio
-    ? `<span class="audio-badge" title="Has audiobook" aria-label="Has audiobook">音</span>`
-    : "";
+  // Audiobook sticker on the cover corner, when any volume has a linked audiobook; the dark
+  // capsule when it is synced. Hidden while managing so the delete button takes the corner.
+  const audioBadge = g.audio ? audioBadgeHtml(g.audioSynced) : "";
 
   const chips = [];
   if (g.genre)

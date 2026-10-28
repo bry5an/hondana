@@ -174,6 +174,19 @@ function abCaption(st) {
 }
 const norm = (t) => String(t ?? "").normalize("NFKC").replace(/\s+/g, "").toLowerCase();
 
+// "Synced audio" under the downloads: only for a book whose audio the app will follow
+// (`audio_synced`, or the sync card's fresh, well-matched map); an unsynced audiobook shows nothing.
+// audio_sync.js calls this as the card's state changes.
+function renderSyncRow(synced) {
+  const el = document.getElementById("sync-row");
+  if (!el || el.hidden === !synced) return;
+  el.hidden = !synced;
+  el.innerHTML = synced
+    ? `${syncCapsuleHtml()}<span class="sync-row-text"><strong>Synced audio</strong>` +
+      `The reader follows the audio and turns the page with it. Tap a word to play from there.</span>`
+    : "";
+}
+
 function renderAbCaption(st) {
   const el = document.getElementById("ab-caption");
   if (!el) return;
@@ -507,7 +520,7 @@ function heroHtml(b) {
           ${seriesLine}
         </div>
         <div class="chips">${chipRow(b)}</div>
-        <div class="book-actions" id="book-actions" tabindex="-1">${actionRow(b)}<div class="ab-caption" id="ab-caption" hidden></div></div>
+        <div class="book-actions" id="book-actions" tabindex="-1">${actionRow(b)}<div class="ab-caption" id="ab-caption" hidden></div><div class="sync-row" id="sync-row" hidden></div></div>
       </div>
       ${loadHtml(b)}
     </div>`;
@@ -877,6 +890,7 @@ async function load() {
     // The audio-sync card (audio_sync.js) fills this in for a Japanese book with a local audiobook.
     // It sits right after the vocabulary card, so the series card inserted later goes before it.
     (b.language === "ja" ? `<section class="stats-card sync-card" id="sync-slot" aria-labelledby="sync-card-title" hidden></section>` : "");
+  renderSyncRow(b.audio_synced === true);
   if (pending) watchJob().catch(() => showAnalysis("Not analyzed yet.", true));
 
   // The link state feeds the hero's caption and the Edit dialog's audiobook section.

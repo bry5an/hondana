@@ -57,6 +57,15 @@ body.dark .book-hero .readout-label { color: rgba(255, 255, 255, 0.74); }
 .book-actions .ab-caption { flex: 1 0 100%; order: 1; }
 .book-actions .read-btn, .book-actions .read-hint { order: 0; }
 .ab-caption .mi { font-size: 1.15em; flex: none; }
+/* Synced audio (renderSyncRow): the capsule, the words, one line of what it means. The capsule's
+   white ring needs room, so the row is inset a little from the buttons above it. */
+.sync-row { display: flex; align-items: center; gap: 12px; font-size: 0.78rem; line-height: 1.4; color: var(--muted); min-width: 0; padding: 4px 2px; }
+.sync-row[hidden] { display: none; }
+.book-actions .sync-row { flex: 1 0 100%; order: 1; }
+.sync-row-text { display: flex; flex-direction: column; min-width: 0; }
+.sync-row-text strong { color: var(--text); font-size: 0.82rem; }
+body.dark .sync-row { color: rgba(255, 255, 255, 0.78); }
+body.dark .sync-row-text strong { color: #fff; }
 
 /* The audiobook-link section at the foot of the Edit dialog (#180). */
 .bd-audiobook { border-top: 2px solid var(--border); padding-top: 14px; }
@@ -303,7 +312,7 @@ body.dark .study-band.s-heavy { color: #f0b0a6; }
   .book-hero { display: grid; grid-template-columns: 96px 1fr; align-items: start; gap: 14px; padding: 14px; }
   .book-head { display: contents; }
   .book-meta { grid-column: 2; }
-  .book-hero .chips, .book-actions, .ab-caption, .book-hero .readout { grid-column: 1 / -1; }
+  .book-hero .chips, .book-actions, .ab-caption, .sync-row, .book-hero .readout { grid-column: 1 / -1; }
   .book-actions .dl-btn { flex: 1 1 0; min-width: 0; }
   .book-actions .dl-note { flex: 1 1 0; min-width: 0; }
   .book-actions .read-btn { flex: 1 0 100%; order: 2; }

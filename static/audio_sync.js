@@ -99,6 +99,8 @@ function syncBodyHtml(st) {
 function paintSync(st) {
   const slot = document.getElementById("sync-slot");
   if (!slot) return;
+  // The hero's "Synced audio" row follows the same rule as the server's audio_synced.
+  if (typeof renderSyncRow === "function") renderSyncRow(st.state === "ready" && st.ok === true);
   const html = syncBodyHtml(st);
   const body = slot.querySelector(".sync-body");
   if (!body) return;  // not mounted yet: the first paint is mountAudioSync's
