@@ -290,6 +290,33 @@ def test_progress_keeps_the_newest_ts_when_events_arrive_out_of_order(server, cl
     assert set(client.get("/api/reader/progress").json()["progress"]) == {"asin:B0", "isbn:1"}
 
 
+def test_a_stopped_position_is_stored_until_a_newer_one_ends_it(server, client):
+    def progress(n, ts, cfi="epubcfi(/6/4)", **extra):
+        return {"id": f"p{n}", "ts": ts, "type": "progress", "stable_key": "asin:B0", "book_id": A,
+                "sha256": "ab" * 32, "cfi": cfi, "fraction": 0.4, **extra}
+
+    def stored():
+        return client.get("/api/reader/progress").json()["progress"]["asin:B0"]
+
+    _post(client, [progress(1, 1000.0)])
+    assert "stopped" not in stored()
+    _post(client, [progress(2, 2000.0, stopped=True)])
+    assert stored()["stopped"] is True and stored()["cfi"] == "epubcfi(/6/4)"
+    # An older page turn arriving late does not undo it; a newer one, which says nothing of it, does.
+    _post(client, [progress(3, 1500.0, cfi="epubcfi(/6/6)")])
+    assert stored()["stopped"] is True
+    _post(client, [progress(4, 3000.0, cfi="epubcfi(/6/8)")])
+    assert "stopped" not in stored() and stored()["cfi"] == "epubcfi(/6/8)"
+
+
+def test_a_reset_position_is_the_start_at_zero(server, client):
+    base = {"type": "progress", "stable_key": "asin:B0", "book_id": A, "sha256": "ab" * 32}
+    _post(client, [{**base, "id": "p1", "ts": 1000.0, "cfi": "epubcfi(/6/20)", "fraction": 0.6, "stopped": True},
+                   {**base, "id": "p2", "ts": 2000.0, "cfi": "epubcfi(/6/2)", "fraction": 0.0}])
+    entry = client.get("/api/reader/progress").json()["progress"]["asin:B0"]
+    assert entry["fraction"] == 0.0 and entry["cfi"] == "epubcfi(/6/2)" and "stopped" not in entry
+
+
 def test_audio_progress_keeps_the_newest_ts_per_audiobook(server, client):
     def audio(n, ts, seconds, ab_id="ab1", track=0):
         return {"id": f"a{n}", "ts": ts, "type": "audio_progress", "ab_id": ab_id,

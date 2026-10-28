@@ -18,7 +18,7 @@ profile's files; none of them is derived, so none belongs in `USER_DERIVED`):
 - `lookups.jsonl`: append-only `{id, ts, orth, lemma, book_id, sentence}`,
   de-duplicated by `id`.
 - `reader_progress.json`: `{stable_key: {book_id, sha256, cfi, fraction,
-  updated_at}}`. Keyed by stable key (`pairing.stable_key`) because `book_id`
+  updated_at, stopped?}}`. Keyed by stable key (`pairing.stable_key`) because `book_id`
   changes on rename and differs between machines.
 - `audio_progress.json`: `{ab_id: {track, seconds, updated_at}}`, where the
   listener is in each audiobook. Keyed by `ab_id`, which is all an audiobook has
@@ -275,6 +275,8 @@ def merge_progress(cfg: Config, events: list[dict]) -> int:
         stored[key] = {
             "book_id": e.get("book_id", ""), "sha256": e.get("sha256", ""),
             "cfi": e["cfi"], "fraction": e.get("fraction", 0.0), "updated_at": iso(e["ts"]),
+            # Only when set: an entry that is being read has no `stopped`, which is how every older entry reads.
+            **({"stopped": True} if e.get("stopped") else {}),
         }
         changed += 1
     if changed:

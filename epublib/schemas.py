@@ -267,6 +267,8 @@ class ProgressEvent(_ReaderEvent):
     sha256: str = ""
     cfi: str = Field(min_length=1)
     fraction: float = Field(default=0.0, ge=0.0, le=1.0)
+    # The reader set the book down and kept their place. The next position for the book, being newer, ends it.
+    stopped: bool = False
 
 
 class AudioProgressEvent(_ReaderEvent):
