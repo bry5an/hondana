@@ -1084,6 +1084,39 @@ def audit(cfg: Config, book: dict, ffmpeg: str = "ffmpeg") -> dict | None:
     return ensure(cfg, book, ab_id, files)
 
 
+def _fresh(m: dict, book: dict, ab_id: str | None) -> bool:
+    """Whether a stored map still describes this book and its linked audiobook."""
+    return bool(m.get("schema") == ALIGN_SCHEMA and m.get("audiobook") == ab_id
+                and m.get("sha256") == (book.get("sha256") or m.get("sha256")))
+
+
+# The few fields `is_synced` needs from a map, by its path, valid while the file is the same
+# (mtime, size): a library listing then stats the maps and parses none that hasn't changed.
+_heads: dict[str, tuple[tuple[int, int], dict]] = {}
+
+
+def is_synced(cfg: Config, book: dict, ab_id: str | None) -> bool:
+    """Whether the phone can follow the audiobook in this book: a stored map that is fresh and
+    matched well (`ok`). `state` says more but reads the whole map; this is for lists."""
+    if ab_id is None:
+        return False
+    path = map_path(cfg, book["book_id"])
+    try:
+        st = path.stat()
+    except OSError:
+        _heads.pop(str(path), None)
+        return False
+    key = (st.st_mtime_ns, st.st_size)
+    hit = _heads.get(str(path))
+    if hit is None or hit[0] != key:
+        m = _load_map(cfg, book["book_id"])
+        if m is None:
+            return False
+        head = {k: m.get(k) for k in ("schema", "audiobook", "sha256", "ok")}
+        hit = _heads[str(path)] = (key, head)
+    return _fresh(hit[1], book, ab_id) and hit[1]["ok"] is True
+
+
 def state(cfg: Config, book: dict, ab_id: str | None, job: dict | None = None) -> dict:
     """What `GET /api/books/{id}/status` reports; reads only the stored map, never
     rebuilds. `state`: none | ready | stale (the book, the schema or the linked
@@ -1096,8 +1129,7 @@ def state(cfg: Config, book: dict, ab_id: str | None, job: dict | None = None) -
         out = {"state": "none", "coverage": None, "ok": None, "source": None, "estimated": None, "anchors": 0,
                "speech_gaps": None, "speech_gap_s": None}
     else:
-        fresh = (m.get("schema") == ALIGN_SCHEMA and m.get("audiobook") == ab_id
-                 and m.get("sha256") == (book.get("sha256") or m.get("sha256")))
+        fresh = _fresh(m, book, ab_id)
         q = m.get("quality") or {}
         out = {"state": "ready" if fresh else "stale", "coverage": m.get("coverage"), "ok": m.get("ok"),
                "source": m.get("source", "synced"), "estimated": m.get("estimated"),

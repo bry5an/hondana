@@ -91,6 +91,7 @@ The pack format, the vocab snapshot and the event rules are specified in `CLAUDE
 `POST`/`DELETE /api/books/{id}/alignment` (SRT upload; `kind=transcript|synced`, and `DELETE ?kind=`
 removes only that kind), `POST`/`DELETE /api/books/{id}/alignment/generate` and
 `GET /api/reader/books/{id}/alignment.srt` (`?kind=`).
+`GET /api/books` and `GET /api/books/{id}` carry `audio_synced`: true when the book's map is fresh and matched well (`alignment.state` `ready` with `ok`), which is when the app follows the audiobook. A client that only lists books reads that instead of asking `/status` for each.
 `GET /api/books/{id}/status` carries `alignment: {state, coverage, ok, step, error, eligible, can_generate,
 source, estimated, anchors, speech_gaps, speech_gap_s, accepts}`: `eligible` is a Japanese book whose audiobook is on the server,
 `can_generate` that `transcribe_cmd` or `subplz_cmd` can run there; the book page's Audio sync card reads

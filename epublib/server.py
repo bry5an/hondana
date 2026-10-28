@@ -508,7 +508,8 @@ def api_books(
         (
             {**{k: v for k, v in b.items() if k not in _BULKY_BOOK_FIELDS},
              "stable_key": pairing_mod.stable_key(b),
-             "known": stats.get(bid)}
+             "known": stats.get(bid),
+             "audio_synced": align_mod.is_synced(cfg, b, _book_audiobook(b)[0])}
             for bid, b in library.items()
             if series is None or b.get("series_name") == series
         ),
@@ -524,7 +525,8 @@ def api_book(book_id: str, req_cfg: Config = Depends(_request_cfg)) -> dict:
     if not book:
         raise HTTPException(status_code=404, detail="Book not found")
     stats = _load_known_stats(req_cfg)
-    return {**book, "stable_key": pairing_mod.stable_key(book), "known": stats.get(book_id)}
+    return {**book, "stable_key": pairing_mod.stable_key(book), "known": stats.get(book_id),
+            "audio_synced": align_mod.is_synced(cfg, book, _book_audiobook(book)[0])}
 
 
 @app.get("/api/books/{book_id}/study")
