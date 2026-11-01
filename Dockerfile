@@ -2,7 +2,7 @@
 # Hondana server image. Debian (glibc), not Alpine: MeCab/fugashi publish no musl wheels.
 # Build: docker build -t hondana .   Run: see docker/compose.yaml and docs/docker.md.
 
-FROM python:3.12-slim-bookworm AS build
+FROM python:3.15-slim-bookworm AS build
 COPY --from=ghcr.io/astral-sh/uv:0.12.0 /uv /bin/uv
 ENV UV_COMPILE_BYTECODE=1 \
     UV_LINK_MODE=copy \
@@ -19,7 +19,7 @@ COPY . /app
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --frozen --no-dev
 
-FROM python:3.12-slim-bookworm
+FROM python:3.15-slim-bookworm
 LABEL org.opencontainers.image.title="Hondana" \
       org.opencontainers.image.description="A self-hosted library for learning Japanese from your own EPUBs and audiobooks" \
       org.opencontainers.image.source="https://github.com/bry5an/hondana" \
