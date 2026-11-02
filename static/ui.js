@@ -530,7 +530,7 @@ function dlTrack(abId, file) {
 // Adapter for the `audiobook` object on /api/books rows.
 function bookAudio(b) {
   const a = b.audiobook;
-  return a ? { id: a.audible_isbn, local: a.audiobook_local, audibleUrl: a.audible_url, path: a.audiobook_path } : null;
+  return a ? { id: a.audible_isbn, local: a.audiobook_local, path: a.audiobook_path } : null;
 }
 
 
