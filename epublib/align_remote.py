@@ -34,6 +34,7 @@ from pathlib import Path
 from urllib.parse import quote, urlparse
 
 import requests
+import truststore
 
 from . import align_jobs, discovery
 
@@ -151,9 +152,24 @@ def _why(resp: requests.Response) -> str:
     return f"HTTP {resp.status_code}"
 
 
+_system_trust = False
+
+
+def _use_system_trust() -> None:
+    """Verify https against the OS certificate store instead of requests' bundled
+    list, so a server whose certificate comes from a CA the user trusted on this
+    machine (mkcert, a company root) works here as it does in the browser."""
+    global _system_trust
+    if not _system_trust:
+        truststore.inject_into_ssl()
+        _system_trust = True
+
+
 class Server:
     def __init__(self, base: str, session: requests.Session | None = None, token: str = "") -> None:
         self.base = base.rstrip("/")
+        if session is None:  # a session handed in (tests) keeps its own verification
+            _use_system_trust()
         self.http = session or requests.Session()
         if token:  # a server with an admin password wants it for the upload
             self.http.headers["Authorization"] = f"Bearer {token}"
